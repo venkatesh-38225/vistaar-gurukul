@@ -1,0 +1,722 @@
+import 'package:adaptive_dialog/adaptive_dialog.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:gurukul/provider/api_provider.dart';
+import 'package:gurukul/provider/tab_provider.dart';
+import 'package:gurukul/provider/theme_provider.dart';
+import 'package:gurukul/utils/colors.dart';
+import 'package:gurukul/utils/widgets/custom_appbar.dart';
+import 'package:provider/provider.dart';
+import 'package:smooth_page_indicator/smooth_page_indicator.dart';
+
+import '../../model/training_test.dart';
+import '../../utils/widgets/options_widget.dart';
+
+enum TestDecision { Pass, Fail }
+
+class TrainingTestScreen extends StatefulWidget {
+  const TrainingTestScreen({
+    super.key,
+    required this.screenTitle,
+    required this.heroTag,
+    required this.trainingId,
+    required this.trainingType,
+    required this.cutOff,
+  });
+
+  final String screenTitle;
+  final Key heroTag;
+  final int trainingId;
+  final String trainingType;
+  final int cutOff;
+
+  @override
+  State<TrainingTestScreen> createState() => _TrainingTestScreenState();
+}
+
+class _TrainingTestScreenState extends State<TrainingTestScreen> {
+  final scrollController = ScrollController();
+  final _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // _userProvider = Provider.of<UserProvider>(context, listen: false);
+    Future.delayed(const Duration(milliseconds: 100), () {
+      // Provider.of<UserProvider>(context, listen: false)
+      //     .setPageTrack(_pageTrack, 0);
+      context.read<UserProvider>().setTrainingPageTrack = 0;
+
+      // context.read<UserProvider>().setCompletedPdfPages = 0;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!(context.read<TabProvider>().isFromCompleted)) {
+        context.read<UserProvider>().addTranscript(
+            trainingId: widget.trainingId, trainingType: "T");
+      }
+    });
+    debugPrint("cutOff = ${widget.cutOff}");
+  }
+
+  Future<void> onFailUpdate() async {
+    if (!(context.read<TabProvider>().isFromCompleted)) {
+      await context
+          .read<UserProvider>()
+          .updateTestTranscript(
+              trainingId: widget.trainingId.toString(),
+              testName: widget.screenTitle,
+              testDecision: "Fail",
+              testStatus: "Completed",
+              bothStatus: "Completed",
+              totalMarks: Provider.of<UserProvider>(context, listen: false)
+                  .getMarks
+                  .toString())
+          .then((value) {
+        debugPrint("response add test fail = $value");
+        context.read<UserProvider>().addUserTestTrancriptDetails(
+            trainingId: value.toString(),
+            OpSelected: context.read<TabProvider>().opSelected,
+            Qid: context.read<TabProvider>().qId);
+      });
+    }
+
+    debugPrint(
+        " options Selected ${context.read<TabProvider>().opSelected} questions Selected ${context.read<TabProvider>().qId}");
+  }
+
+  Future<void> onPassUpdate() async {
+    if (!(context.read<TabProvider>().isFromCompleted)) {
+      await context
+          .read<UserProvider>()
+          .updateTestTranscript(
+              trainingId: widget.trainingId.toString(),
+              testName: widget.screenTitle,
+              testDecision: "Pass",
+              testStatus: "Completed",
+              bothStatus: "Completed",
+              totalMarks: Provider.of<UserProvider>(context, listen: false)
+                  .getMarks
+                  .toString())
+          .then((value) {
+        debugPrint("response add test pass = $value");
+
+        context.read<UserProvider>().addUserTestTrancriptDetails(
+            trainingId: value.toString(),
+            OpSelected: context.read<TabProvider>().opSelected,
+            Qid: context.read<TabProvider>().qId);
+      });
+    }
+    // context.go('/');
+
+    debugPrint(
+        " options Selected ${context.read<TabProvider>().opSelected} questions Selected ${context.read<TabProvider>().qId}");
+    // Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Size size = MediaQuery.of(context).size;
+    final controller = PageController(viewportFraction: 1);
+
+    return WillPopScope(
+      onWillPop: () async {
+        // return true;
+
+        return await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Exit?'),
+            content: const Text(
+                'Are you sure you want to quit. All your progress will be lost.'),
+            actions: <Widget>[
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.black),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () async {
+                  return context.go('/home', extra: {
+                    'screenTitle': widget.screenTitle,
+                    'heroTag': widget.heroTag,
+                    'trainingID': widget.trainingId,
+                  });
+                  //  return Navigator.of(context).pop(true);
+                },
+                child: const Text(
+                  'Yes',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      child: SafeArea(
+        child: Scaffold(
+          appBar: CustomAppBar(
+            size: size,
+            title: widget.screenTitle,
+            automaticallyImplyLeading: true,
+          ),
+          body: FutureBuilder(
+            future: Provider.of<UserProvider>(context, listen: false)
+                .getTrainingTest(trainingId: widget.trainingId),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LinearProgressIndicator();
+              } else if (!snapshot.hasData) {
+                return Center(
+                  child: Text(
+                    "Test in progress. Check back soon!",
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w400,
+                      fontSize: 20,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              } else {
+                return Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Flexible(child: indicator(controller, snapshot)),
+                      content(size, controller, snapshot, context),
+                    ],
+                  ),
+                );
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  SizedBox content(
+    Size size,
+    PageController controller,
+    AsyncSnapshot<dynamic> snapshot,
+    BuildContext context,
+  ) {
+    return SizedBox(
+      height: size.height / 1.3,
+      width: size.width,
+      child: PageView.builder(
+        controller: controller,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: snapshot.data.length,
+        onPageChanged: (page) =>
+            context.read<UserProvider>().setTrainingPageTrack = page,
+        itemBuilder: (_, index) {
+          D trainingTest = snapshot.data![index];
+
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                      color: ColorConstraints.cardColor(context),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: ColorConstraints.cardShadowColor(context),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                      border: Border.all(
+                        color: context.watch<ThemeChanger>().isNightMode
+                            ? Colors.white.withOpacity(0.05)
+                            : Colors.grey.withOpacity(0.08),
+                        width: 1,
+                      )),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        height: size.height / 4.5,
+                        width: size.width,
+                        decoration: BoxDecoration(
+                            color: ColorConstraints.testCardBackgroundColor(context),
+                            borderRadius: BorderRadius.circular(16)),
+                        margin: const EdgeInsets.all(12.0),
+                        padding: const EdgeInsets.all(16.0),
+                        child: Scrollbar(
+                          controller: scrollController,
+                          child: SingleChildScrollView(
+                            controller: scrollController,
+                            child: Text(
+                              trainingTest.questionDetails!,
+                              style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: ColorConstraints.iconColor(context)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      trainingTest.opt1! > 0
+                          ? OptionButtonWidget(
+                              options: trainingTest.opt1Text!,
+                              correctOption: trainingTest.wtopt1!,
+                              questionIndex: index,
+                              pageController: controller,
+                              totalNumberOfPage: snapshot.data.length,
+                              optionIndex: 0,
+                              questionId: trainingTest.id!,
+                            )
+                          : Container(),
+                      trainingTest.opt2! > 0
+                          ? OptionButtonWidget(
+                              options: trainingTest.opt2Text!,
+                              correctOption: trainingTest.wtopt2!,
+                              questionIndex: index,
+                              pageController: controller,
+                              totalNumberOfPage: snapshot.data.length,
+                              optionIndex: 1,
+                              questionId: trainingTest.id!,
+                            )
+                          : Container(),
+                      trainingTest.opt3! > 0
+                          ? OptionButtonWidget(
+                              options: trainingTest.opt3Text!,
+                              correctOption: trainingTest.wtopt3!,
+                              questionIndex: index,
+                              pageController: controller,
+                              totalNumberOfPage: snapshot.data.length,
+                              optionIndex: 2,
+                              questionId: trainingTest.id!,
+                            )
+                          : Container(),
+                      trainingTest.opt4! > 0
+                          ? OptionButtonWidget(
+                              options: trainingTest.opt4Text!,
+                              correctOption: trainingTest.wtopt4!,
+                              questionIndex: index,
+                              pageController: controller,
+                              totalNumberOfPage: snapshot.data.length,
+                              optionIndex: 3,
+                              questionId: trainingTest.id!,
+                            )
+                          : Container(),
+                      trainingTest.opt5! > 0
+                          ? OptionButtonWidget(
+                              options: trainingTest.opt5Text!,
+                              correctOption: trainingTest.wtopt5!,
+                              questionIndex: index,
+                              pageController: controller,
+                              totalNumberOfPage: snapshot.data.length,
+                              optionIndex: 4,
+                              questionId: trainingTest.id!,
+                            )
+                          : Container(),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      index == 0
+                          ? Container()
+                          : OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: ColorConstraints.testControlsColor(context).withOpacity(0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              onPressed: () {
+                                controller.animateToPage(
+                                    controller.page!.toInt() - 1,
+                                    duration: const Duration(milliseconds: 100),
+                                    curve: Curves.linear);
+                              },
+                              icon: Icon(Icons.arrow_back_rounded, color: ColorConstraints.testControlsColor(context), size: 18),
+                              label: Text("Back", style: GoogleFonts.plusJakartaSans(color: ColorConstraints.testControlsColor(context), fontWeight: FontWeight.bold)),
+                            ),
+                      (context
+                                  .read<TabProvider>()
+                                  .qId
+                                  .contains(trainingTest.id) ||
+                              trainingTest.opt1Text!.isEmpty)
+                          ? ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: ColorConstraints.primaryColor(context),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                elevation: 2,
+                              ),
+                              onPressed: () {
+                                controller.animateToPage(
+                                    controller.page!.toInt() + 1,
+                                    duration: const Duration(milliseconds: 100),
+                                    curve: Curves.linear);
+                              },
+                              icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                              label: Text("Next", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold)),
+                            )
+                          : Container(),
+                    ],
+                  ),
+                ),
+                index + 1 == snapshot.data.length
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                        child: Container(
+                          width: double.infinity,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            gradient: ColorConstraints.accentGradient(context),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFF15A24).withOpacity(0.35),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                              onPressed: () {
+                                int percentage = (Provider.of<UserProvider>(
+                                        context,
+                                        listen: false)
+                                    .getMarks);
+
+                                TestDecision testDecision = TestDecision.Pass;
+                                int cuttOffString =
+                                    ((widget.cutOff / snapshot.data.length) * 100)
+                                        .round();
+                                debugPrint("Marks = $percentage");
+                                if (percentage < widget.cutOff) {
+                                  testDecision = TestDecision.Fail;
+                                }
+
+                                if (testDecision == TestDecision.Fail) {
+                                  onFailUpdate();
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) {
+                                      return AlertDialog(
+                                        backgroundColor: ColorConstraints.cardColor(context),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(24.0),
+                                        ),
+                                        title: Text(
+                                          "Better luck next time",
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red.shade400,
+                                            fontSize: 20,
+                                          ),
+                                        ),
+                                        content: SingleChildScrollView(
+                                          child: ListBody(
+                                            children: <Widget>[
+                                              Image.asset(
+                                                'assets/fail.gif',
+                                                scale: 2,
+                                              ),
+                                              const SizedBox(
+                                                height: 16,
+                                              ),
+                                              Text.rich(
+                                                TextSpan(
+                                                  text:
+                                                      "Unfortunately, you didn't pass the quiz this time. You achieved a score of",
+                                                  children: [
+                                                    TextSpan(
+                                                      text:
+                                                          " ${((percentage / snapshot.data.length) * 100).round()}%",
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 18,
+                                                        color: Colors.red,
+                                                      ),
+                                                    ),
+                                                    const TextSpan(
+                                                        text:
+                                                            ", while the passing score is",
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 18,
+                                                        )),
+                                                    TextSpan(
+                                                      text: " $cuttOffString%",
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 18,
+                                                        color: Colors.green,
+                                                      ),
+                                                    ),
+                                                    const TextSpan(
+                                                      text:
+                                                          ". But don't be disheartened! Keep learning and practicing, and you're sure to ace it next time!",
+                                                    ),
+                                                  ],
+                                                  style: GoogleFonts.plusJakartaSans(
+                                                    fontWeight: FontWeight.w400,
+                                                    fontSize: 15,
+                                                    color: ColorConstraints.iconColor(context),
+                                                    height: 1.4,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        actions: <Widget>[
+                                          TextButton(
+                                            child: Text(
+                                              'OK',
+                                              style: GoogleFonts.plusJakartaSans(
+                                                fontWeight: FontWeight.bold,
+                                                color: ColorConstraints.secondaryColor(context),
+                                              ),
+                                            ),
+                                            onPressed: () async {
+                                              Navigator.of(context).pop();
+                                              try {
+                                                context.read<UserProvider>()
+                                                  ..setPercAndStatus()
+                                                  ..getOtherTrainingData();
+                                              } catch (e) {
+                                                debugPrint(
+                                                    "Error refreshing : $e ");
+                                              }
+                                              context.go('/home');
+                                            },
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                } else {
+                                  onPassUpdate();
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) {
+                                      return AlertDialog(
+                                        backgroundColor: ColorConstraints.cardColor(context),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(24.0),
+                                        ),
+                                        title: Text(
+                                          "Congratulations!",
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green.shade400,
+                                            fontSize: 20,
+                                          ),
+                                        ),
+                                        content: SingleChildScrollView(
+                                          child: ListBody(
+                                            children: <Widget>[
+                                              Image.asset(
+                                                'assets/success.gif',
+                                                scale: 2,
+                                              ),
+                                              const SizedBox(
+                                                height: 16,
+                                              ),
+                                              Text.rich(
+                                                TextSpan(
+                                                  text:
+                                                      "Fantastic job! You score",
+                                                  children: [
+                                                    TextSpan(
+                                                      text: " ${((percentage / snapshot.data.length) * 100).toStringAsFixed(1)}%",
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 18,
+                                                        color: Colors.green,
+                                                      ),
+                                                    ),
+                                                    const TextSpan(
+                                                      text:
+                                                          ", You've passed the quiz with flying colors. Keep shining!",
+                                                    ),
+                                                  ],
+                                                  style: GoogleFonts.plusJakartaSans(
+                                                    fontWeight: FontWeight.w400,
+                                                    fontSize: 15,
+                                                    color: ColorConstraints.iconColor(context),
+                                                    height: 1.4,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        actions: <Widget>[
+                                          TextButton(
+                                            child: Text(
+                                              'OK',
+                                              style: GoogleFonts.plusJakartaSans(
+                                                fontWeight: FontWeight.bold,
+                                                color: ColorConstraints.secondaryColor(context),
+                                              ),
+                                            ),
+                                            onPressed: () async {
+                                              Navigator.of(context).pop();
+                                              try {
+                                                context.read<UserProvider>()
+                                                  ..setPercAndStatus()
+                                                  ..getOtherTrainingData();
+                                              } catch (e) {
+                                                debugPrint(
+                                                    "Error refreshing : $e ");
+                                              }
+                                              context.go('/home');
+                                            },
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                }
+                                try {
+                                  context.read<UserProvider>()
+                                    ..setPercAndStatus()
+                                    ..getOtherTrainingData();
+                                } catch (e) {
+                                  debugPrint("Error refreshing : $e ");
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Text(
+                                "SUBMIT TEST",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: 0.8,
+                                ),
+                              )),
+                        ),
+                      )
+                    : Container(),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget indicator(PageController controller, AsyncSnapshot<dynamic> snapshot) {
+    // return SmoothPageIndicator(
+    //   controller: controller,
+    //   count: snapshot.data.length,
+    //   axisDirection: Axis.horizontal,
+    //   onDotClicked: (value) {
+    //     controller.animateToPage(value,
+    //         duration: const Duration(milliseconds: 400),
+    //         curve: Curves.bounceIn);
+    //   },
+    //   effect: const WormEffect(
+    //     offset: 1,
+    //     dotHeight: 8,
+    //     dotWidth: 8,
+    //     type: WormType.thinUnderground,
+    //   ),
+    //   // effect: const ScaleEffect(
+    //   //   offset: 1,
+    //   //   dotHeight: 3,
+    //   //   dotWidth: 3,
+    //   // ),
+    // );
+    return Selector<UserProvider, int>(
+      selector: (_, provider) => provider.trainingPageTrack,
+      builder: (_, trainingPageTrack, __) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: ColorConstraints.primaryColor(context).withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          "Question ${trainingPageTrack + 1} of ${snapshot.data.length}",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.bold,
+            color: ColorConstraints.primaryColor(context),
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CustomImageAlert extends StatelessWidget {
+  const CustomImageAlert(
+      {super.key,
+      required this.dialogImage,
+      required this.dialogMessage,
+      required this.dialogTitle,
+      required this.onPress});
+
+  final String dialogTitle;
+  final String dialogMessage;
+  final Widget dialogImage;
+  final VoidCallback onPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 400,
+      width: 300,
+      child: AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text(
+          dialogTitle,
+          style: GoogleFonts.inter(),
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            dialogImage,
+            Text(
+              dialogMessage,
+              style: GoogleFonts.inter(),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: onPress,
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}

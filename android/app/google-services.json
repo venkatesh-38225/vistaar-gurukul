@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "207306494855",
+    "project_id": "gurukul-app-1ad9d",
+    "storage_bucket": "gurukul-app-1ad9d.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207306494855:android:205d7a4c0d8a6b8c807922",
+        "android_client_info": {
+          "package_name": "com.vistaar.coachapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwVrpDVEEZIBU42Fh3v6qe6fckrh-slpA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207306494855:android:2b97321b84943707807922",
+        "android_client_info": {
+          "package_name": "com.vistaar.gurukul"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwVrpDVEEZIBU42Fh3v6qe6fckrh-slpA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
