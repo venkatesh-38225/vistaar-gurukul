@@ -269,8 +269,8 @@ class _TrainingScreenState extends State<TrainingScreen>
       onWillPop: () async {
         final bool? result = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: ColorConstraints.cardColor(context),
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: ColorConstraints.cardColor(dialogContext),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -309,7 +309,7 @@ class _TrainingScreenState extends State<TrainingScreen>
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 15,
                     height: 1.5,
-                    color: Theme.of(context)
+                    color: Theme.of(dialogContext)
                         .textTheme
                         .bodyMedium
                         ?.color
@@ -321,7 +321,8 @@ class _TrainingScreenState extends State<TrainingScreen>
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () => Navigator.of(context).pop(false),
+                      onPressed: () =>
+                          Navigator.of(dialogContext).pop(false),
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 12),
@@ -348,31 +349,8 @@ class _TrainingScreenState extends State<TrainingScreen>
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      onPressed: () async {
-                        if (!widget.fromCompleted) {
-                          calculateContentProgress();
-                          setState(() {
-                            context.read<UserProvider>().setPercAndStatus();
-                          });
-                        }
-                        try {
-                          setState(() {
-                            context.read<UserProvider>()
-                              ..setIsScrollable = true
-                              ..setLatestPdfPage = 0
-                              ..setCompletedPdfPages = 0;
-                          });
-                          context.read<UserProvider>().setCompletedPdfPages = 0;
-                        } catch (e) {
-                          debugPrint("Error refreshing : $e ");
-                        }
-                        Navigator.of(context).pop(true);
-                        context.go('/home', extra: {
-                          'screenTitle': widget.screenTitle,
-                          'heroTag': widget.heroTag,
-                          'trainingID': widget.trainingId,
-                        });
-                      },
+                      onPressed: () =>
+                          Navigator.of(dialogContext).pop(true),
                       child: Text(
                         'Yes, Exit',
                         style: GoogleFonts.plusJakartaSans(
@@ -387,7 +365,23 @@ class _TrainingScreenState extends State<TrainingScreen>
             ),
           ),
         );
-        return result ?? false;
+        if (result != true || !context.mounted) {
+          return false;
+        }
+
+        if (!widget.fromCompleted) {
+          calculateContentProgress();
+          context.read<UserProvider>().setPercAndStatus();
+        }
+        try {
+          context.read<UserProvider>()
+            ..setIsScrollable = true
+            ..setLatestPdfPage = 0
+            ..setCompletedPdfPages = 0;
+        } catch (e) {
+          debugPrint("Error refreshing : $e ");
+        }
+        return true;
       },
       child: FutureBuilder(
         future: _trainingContentFuture,
@@ -611,7 +605,6 @@ class _TrainingScreenState extends State<TrainingScreen>
       AsyncSnapshot<dynamic> snapshot, BuildContext context) {
     // Key pdfKey = const Key("pdfKey");
 
-    PDFViewController? pdfcontroller;
 //Provider.of<ProvideName>(context, listen: false).addValue() //Selector Widget
 //Provider.of<ProvideName>(context).addValue() //Consumer WIdget
     return SizedBox(
@@ -731,6 +724,16 @@ class _TrainingScreenState extends State<TrainingScreen>
                                       children: [
                                         Center(
                                           child: PDFView(
+                                            defaultPage: context
+                                                        .read<UserProvider>()
+                                                        .completedPdfPage >
+                                                    0
+                                                ? context
+                                                    .read<UserProvider>()
+                                                    .completedPdfPage
+                                                : context
+                                                    .read<UserProvider>()
+                                                    .latestPdfPage,
                                             onPageError: (page, error) =>
                                                 const CircularProgressIndicator(),
                                             pageSnap: true,
@@ -776,34 +779,8 @@ class _TrainingScreenState extends State<TrainingScreen>
                                               //   }
                                               // }
                                             },
-                                            onViewCreated: (pdfcontroller) {
-                                              pdfcontroller = pdfcontroller;
+                                            onViewCreated: (pdfController) {
                                               debugPrint("pdf onViewCreated");
-                                              int gotoPage =
-                                                  // _pageTrack.fold(0, math.max);
-                                                  context
-                                                      .read<UserProvider>()
-                                                      .latestPdfPage;
-                                              // if (_pdfLoaded) {
-                                              //   debugPrint(
-                                              //       "latestPage = $_latestPdfPage");
-                                              Future.delayed(
-                                                  const Duration(seconds: 1),
-                                                  () async {
-                                                if (context
-                                                        .read<UserProvider>()
-                                                        .completedPdfPage >
-                                                    0) {
-                                                  await pdfcontroller.setPage(
-                                                      context
-                                                          .read<UserProvider>()
-                                                          .completedPdfPage);
-                                                } else {
-                                                  await pdfcontroller
-                                                      .setPage(gotoPage);
-                                                }
-                                              });
-                                              // }
                                             },
                                             onPageChanged: (page, total) {
                                               debugPrint("pdf onPageChanged");
@@ -1281,7 +1258,9 @@ class _TrainingScreenState extends State<TrainingScreen>
   @override
   void dispose() {
     debugPrint("calling dispose!");
-    _animationController!.dispose();
+    _animationController?.dispose();
+    _pageMoveTimer?.cancel();
+    controller.dispose();
 
     for (var timer in _timers) {
       timer.cancel();

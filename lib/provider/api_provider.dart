@@ -511,9 +511,12 @@ isLoading  = true;
       "Type": trainingType,
     };
 
-    debugPrint("add Transcript = $addTranscriptData");
+    debugPrint("AddTrancript request body = $addTranscriptData");
     try {
-      await dio.post(addTranscriptUrl, data: addTranscriptData);
+      Response response =
+          await dio.post(addTranscriptUrl, data: addTranscriptData);
+      debugPrint(
+          "AddTrancript response (${response.statusCode}) = ${response.data}");
     } catch (e) {
       debugPrint("Error in addTranscript: $e");
     }
@@ -532,20 +535,20 @@ isLoading  = true;
       "EmailId": savedData.email!,
       "UserName": savedData.userName!,
       "TestName": contentName,
-      "TrainingId": trainingId is int
-          ? trainingId
-          : (int.tryParse(trainingId.toString()) ?? trainingId),
+      "TrainingId": trainingId.toString(),
       "CompletedPercentage": completedPerc,
       "ContentStatus": contentStatus,
       "BothStattus": bothStatus,
     };
     int d = 0;
-    debugPrint("update Transcript data $updateTranscriptData");
+    debugPrint(
+        "UpdateUserContentTrancript request body = $updateTranscriptData");
     try {
       Response response =
           await dio.post(updateTranscriptUrl, data: updateTranscriptData);
+      debugPrint(
+          "UpdateUserContentTrancript response (${response.statusCode}) = ${response.data}");
       d = jsonDecode(response.toString())['d'];
-      debugPrint("update Transcript response = $d");
     } catch (e) {
       debugPrint("Error in updateTranscript: $e");
     }
@@ -568,21 +571,26 @@ isLoading  = true;
       "EmailId": savedData.email!,
       "UserName": savedData.userName!,
       "TestName": testName,
-      "TrainingId": trainingId is int
-          ? trainingId
-          : (int.tryParse(trainingId.toString()) ?? trainingId),
+      "TrainingId": trainingId.toString(),
       "TestDecision": testDecision,
       "TestStatus": testStatus,
-      "BothStattus": bothStatus,
-      "TotalMarks": testStatus.toLowerCase() == "p" ? totalMarks : "0",
+      // "BothStattus": bothStatus,
+      "BothStatus": bothStatus,
+      "TotalMarks": totalMarks,
+      // "TotalMarks": testStatus.toLowerCase() == "p" ? totalMarks : "0",
     };
     int d = 0;
-    debugPrint("update Test Transcript data $updateTranscriptData");
+    debugPrint("UpdateUserTestTrancript request body = $updateTranscriptData");
     try {
       Response response = await dio.post(updateUserTestTrancriptUrl,
           data: updateTranscriptData);
+      debugPrint(
+          "UpdateUserTestTrancript response (${response.statusCode}) = ${response.data}");
       d = jsonDecode(response.toString())['d'];
-      debugPrint("update Test Transcript response = $d");
+    } on DioException catch (e) {
+      debugPrint(
+          "UpdateUserTestTrancript error response (${e.response?.statusCode}) = ${e.response?.data}");
+      debugPrint("Error in updateTestTranscript: $e");
     } catch (e) {
       debugPrint("Error in updateTestTranscript: $e");
     }
@@ -626,11 +634,13 @@ isLoading  = true;
       "QId": Qid,
       "OpSelected": OpSelected
     };
-    debugPrint("test details = $testDetailsData");
+    debugPrint(
+        "AddUserTestTrancriptDetails request body = $testDetailsData");
     Response response =
         await dio.post(addUserTestTrancriptDetailsUrl, data: testDetailsData);
+    debugPrint(
+        "AddUserTestTrancriptDetails response (${response.statusCode}) = ${response.data}");
     int d = jsonDecode(response.toString())['d'];
-    // debugPrint("response addUserTest = $d");
     return d;
   }
 

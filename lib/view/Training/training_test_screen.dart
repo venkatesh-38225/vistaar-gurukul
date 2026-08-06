@@ -38,10 +38,14 @@ class TrainingTestScreen extends StatefulWidget {
 class _TrainingTestScreenState extends State<TrainingTestScreen> {
   final scrollController = ScrollController();
   final _scrollController = ScrollController();
+  bool _isSubmitting = false;
+  late Future<dynamic> _trainingTestFuture;
 
   @override
   void initState() {
     super.initState();
+    _trainingTestFuture =
+        context.read<UserProvider>().getTrainingTest(trainingId: widget.trainingId);
     // _userProvider = Provider.of<UserProvider>(context, listen: false);
     Future.delayed(const Duration(milliseconds: 100), () {
       // Provider.of<UserProvider>(context, listen: false)
@@ -59,59 +63,54 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     debugPrint("cutOff = ${widget.cutOff}");
   }
 
-  Future<void> onFailUpdate() async {
-    if (!(context.read<TabProvider>().isFromCompleted)) {
-      await context
-          .read<UserProvider>()
-          .updateTestTranscript(
-              trainingId: widget.trainingId.toString(),
-              testName: widget.screenTitle,
-              testDecision: "Fail",
-              testStatus: "Completed",
-              bothStatus: "Completed",
-              totalMarks: Provider.of<UserProvider>(context, listen: false)
-                  .getMarks
-                  .toString())
-          .then((value) {
-        debugPrint("response add test fail = $value");
-        context.read<UserProvider>().addUserTestTrancriptDetails(
-            trainingId: value.toString(),
-            OpSelected: context.read<TabProvider>().opSelected,
-            Qid: context.read<TabProvider>().qId);
-      });
-    }
-
-    debugPrint(
-        " options Selected ${context.read<TabProvider>().opSelected} questions Selected ${context.read<TabProvider>().qId}");
+  Future<bool> onFailUpdate() async {
+    return _submitTestUpdate(testDecision: "Fail");
   }
 
-  Future<void> onPassUpdate() async {
-    if (!(context.read<TabProvider>().isFromCompleted)) {
-      await context
-          .read<UserProvider>()
-          .updateTestTranscript(
-              trainingId: widget.trainingId.toString(),
-              testName: widget.screenTitle,
-              testDecision: "Pass",
-              testStatus: "Completed",
-              bothStatus: "Completed",
-              totalMarks: Provider.of<UserProvider>(context, listen: false)
-                  .getMarks
-                  .toString())
-          .then((value) {
-        debugPrint("response add test pass = $value");
+  Future<bool> onPassUpdate() async {
+    return _submitTestUpdate(testDecision: "Pass");
+  }
 
-        context.read<UserProvider>().addUserTestTrancriptDetails(
-            trainingId: value.toString(),
-            OpSelected: context.read<TabProvider>().opSelected,
-            Qid: context.read<TabProvider>().qId);
-      });
+  Future<bool> _submitTestUpdate({required String testDecision}) async {
+    final userProvider = context.read<UserProvider>();
+    final tabProvider = context.read<TabProvider>();
+
+    if (tabProvider.isFromCompleted) {
+      return true;
     }
-    // context.go('/');
 
-    debugPrint(
-        " options Selected ${context.read<TabProvider>().opSelected} questions Selected ${context.read<TabProvider>().qId}");
-    // Navigator.of(context).pop();
+    try {
+      final transcriptId = await userProvider.updateTestTranscript(
+        trainingId: widget.trainingId.toString(),
+        testName: widget.screenTitle,
+        testDecision: testDecision,
+        testStatus: "Completed",
+        bothStatus: "Completed",
+        totalMarks: userProvider.getMarks.toString(),
+      );
+      debugPrint(
+          "response add test ${testDecision.toLowerCase()} = $transcriptId");
+
+      if (transcriptId <= 0) {
+        debugPrint(
+            "Test submission stopped: invalid transcript id $transcriptId");
+        return false;
+      }
+
+      final detailsResponse =
+          await userProvider.addUserTestTrancriptDetails(
+        trainingId: transcriptId.toString(),
+        OpSelected: tabProvider.opSelected,
+        Qid: tabProvider.qId,
+      );
+
+      debugPrint(
+          "options Selected ${tabProvider.opSelected} questions Selected ${tabProvider.qId}");
+      return detailsResponse > 0;
+    } catch (e) {
+      debugPrint("Error submitting completed training test: $e");
+      return false;
+    }
   }
 
   @override
@@ -123,39 +122,36 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
       onWillPop: () async {
         // return true;
 
-        return await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Exit?'),
-            content: const Text(
-                'Are you sure you want to quit. All your progress will be lost.'),
-            actions: <Widget>[
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.black),
-                ),
+        return await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Exit?'),
+                content: const Text(
+                    'Are you sure you want to quit. All your progress will be lost.'),
+                actions: <Widget>[
+                  ElevatedButton(
+                    style:
+                        ElevatedButton.styleFrom(backgroundColor: Colors.white),
+                    onPressed: () =>
+                        Navigator.of(dialogContext).pop(false),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ),
+                  ElevatedButton(
+                    style:
+                        ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    child: const Text(
+                      'Yes',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
               ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                onPressed: () async {
-                  return context.go('/home', extra: {
-                    'screenTitle': widget.screenTitle,
-                    'heroTag': widget.heroTag,
-                    'trainingID': widget.trainingId,
-                  });
-                  //  return Navigator.of(context).pop(true);
-                },
-                child: const Text(
-                  'Yes',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        );
+            ) ??
+            false;
       },
       child: SafeArea(
         child: Scaffold(
@@ -165,8 +161,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
             automaticallyImplyLeading: true,
           ),
           body: FutureBuilder(
-            future: Provider.of<UserProvider>(context, listen: false)
-                .getTrainingTest(trainingId: widget.trainingId),
+            future: _trainingTestFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const LinearProgressIndicator();
@@ -392,7 +387,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                             ],
                           ),
                           child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: () async {
+                                if (_isSubmitting) {
+                                  return;
+                                }
+                                _isSubmitting = true;
+
                                 int percentage = (Provider.of<UserProvider>(
                                         context,
                                         listen: false)
@@ -407,8 +407,27 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                   testDecision = TestDecision.Fail;
                                 }
 
+                                final submissionSuccessful =
+                                    testDecision == TestDecision.Fail
+                                        ? await onFailUpdate()
+                                        : await onPassUpdate();
+
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                _isSubmitting = false;
+
+                                if (!submissionSuccessful) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          "Unable to submit the completed training. Please try again."),
+                                    ),
+                                  );
+                                  return;
+                                }
+
                                 if (testDecision == TestDecision.Fail) {
-                                  onFailUpdate();
                                   showDialog(
                                     context: context,
                                     builder: (context) {
@@ -511,7 +530,6 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     },
                                   );
                                 } else {
-                                  onPassUpdate();
                                   showDialog(
                                     context: context,
                                     builder: (context) {
