@@ -8,8 +8,13 @@ const noticiationChannelName = 'gurukulName';
 
 String get baseURL => environment!.baseUrl;
 
-//AUTH URL
-String get loginUrl => "$baseURL/CheckADLogin";
+// AUTH URLs
+String get authBaseUrl => environment!.authBaseUrl;
+String get loginUrl => "$authBaseUrl/Login";
+String get sendOtpUrl => "$authBaseUrl/otp/SendOtp";
+String get verifyOtpUrl => "$authBaseUrl/otp/verifyOTP";
+const String authApiKey = "ht9AfQrZmJnu0Gxl";
+const String authSource = "Gurukul";
 
 //FETCH TRAINING
 String get trainingContentUrl => "$baseURL/GetTrainingContent";
@@ -31,9 +36,6 @@ String get getCompletedTrainingDetailsUrl =>
 //ASSIGN TRAINING
 String get assignTrainingToEmployeeUrl => "$baseURL/AssignTrainingToEmployee";
 
-//OTP URL
-String get sendOtpUrl =>
-    "https://vistaarapis.vistaarfinance.net.in:469/VisAPIsProd.svc/SendOTP";
 String get addAppKeyUrl => "$baseURL/AddAppKeyMapping";
 
 const String API_TOKEN = "GURUKUL_TOKEN";

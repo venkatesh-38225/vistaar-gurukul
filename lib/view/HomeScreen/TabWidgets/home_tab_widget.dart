@@ -228,101 +228,101 @@ class _HomeTabWidgetState extends State<HomeTabWidget> {
           ),
 
           // Active Course / Quick Resume Section
-          if (activeCourse != null) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 8.0),
-              child: Text(
-                isActiveCourseInProgress
-                    ? "Resume Course"
-                    : "Recommended Course",
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: InkWell(
-                onTap: () => _startTraining(context, activeCourse),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  padding: const EdgeInsets.all(18.0),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF131A2E) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isDark
-                          ? Colors.white.withOpacity(0.06)
-                          : Colors.grey.withOpacity(0.12),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isDark
-                            ? Colors.black38
-                            : Colors.grey.withOpacity(0.05),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF003B75).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.menu_book_rounded,
-                          color: Color(0xFF003B75),
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              activeCourse.trainingName ?? "",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isActiveCourseInProgress
-                                  ? "In Progress • Click to resume session"
-                                  : "Yet to Start • Click to begin session",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isActiveCourseInProgress
-                                    ? const Color(0xFF3B82F6)
-                                    : const Color(0xFFF59E0B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.grey,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+          // if (activeCourse != null) ...[
+          //   Padding(
+          //     padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 8.0),
+          //     child: Text(
+          //       isActiveCourseInProgress
+          //           ? "Resume Course"
+          //           : "Recommended Course",
+          //       style: GoogleFonts.plusJakartaSans(
+          //         fontSize: 18,
+          //         fontWeight: FontWeight.bold,
+          //         letterSpacing: -0.3,
+          //       ),
+          //     ),
+          //   ),
+          //   Padding(
+          //     padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          //     child: InkWell(
+          //       onTap: () => _startTraining(context, activeCourse),
+          //       borderRadius: BorderRadius.circular(16),
+          //       child: Container(
+          //         padding: const EdgeInsets.all(18.0),
+          //         decoration: BoxDecoration(
+          //           color: isDark ? const Color(0xFF131A2E) : Colors.white,
+          //           borderRadius: BorderRadius.circular(16),
+          //           border: Border.all(
+          //             color: isDark
+          //                 ? Colors.white.withOpacity(0.06)
+          //                 : Colors.grey.withOpacity(0.12),
+          //             width: 1,
+          //           ),
+          //           boxShadow: [
+          //             BoxShadow(
+          //               color: isDark
+          //                   ? Colors.black38
+          //                   : Colors.grey.withOpacity(0.05),
+          //               blurRadius: 12,
+          //               offset: const Offset(0, 6),
+          //             ),
+          //           ],
+          //         ),
+          //         child: Row(
+          //           children: [
+          //             Container(
+          //               padding: const EdgeInsets.all(12),
+          //               decoration: BoxDecoration(
+          //                 color: const Color(0xFF003B75).withOpacity(0.1),
+          //                 shape: BoxShape.circle,
+          //               ),
+          //               child: const Icon(
+          //                 Icons.menu_book_rounded,
+          //                 color: Color(0xFF003B75),
+          //                 size: 24,
+          //               ),
+          //             ),
+          //             const SizedBox(width: 16),
+          //             Expanded(
+          //               child: Column(
+          //                 crossAxisAlignment: CrossAxisAlignment.start,
+          //                 children: [
+          //                   Text(
+          //                     activeCourse.trainingName ?? "",
+          //                     style: GoogleFonts.plusJakartaSans(
+          //                       fontSize: 15,
+          //                       fontWeight: FontWeight.bold,
+          //                     ),
+          //                     maxLines: 2,
+          //                     overflow: TextOverflow.ellipsis,
+          //                   ),
+          //                   const SizedBox(height: 4),
+          //                   Text(
+          //                     isActiveCourseInProgress
+          //                         ? "In Progress • Click to resume session"
+          //                         : "Yet to Start • Click to begin session",
+          //                     style: GoogleFonts.plusJakartaSans(
+          //                       fontSize: 12,
+          //                       fontWeight: FontWeight.w600,
+          //                       color: isActiveCourseInProgress
+          //                           ? const Color(0xFF3B82F6)
+          //                           : const Color(0xFFF59E0B),
+          //                     ),
+          //                   ),
+          //                 ],
+          //               ),
+          //             ),
+          //             const SizedBox(width: 8),
+          //             const Icon(
+          //               Icons.chevron_right_rounded,
+          //               color: Colors.grey,
+          //             ),
+          //           ],
+          //         ),
+          //       ),
+          //     ),
+          //   ),
+          // ],
 
           // Stats / Categories Section
           Padding(

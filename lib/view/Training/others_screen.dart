@@ -23,7 +23,6 @@ class _OthersScreenState extends State<OthersScreen> {
     Size size = MediaQuery.of(context).size;
     return Scaffold(
       appBar: CustomAppBar(
-
         size: size,
         title: "Others",
         automaticallyImplyLeading: true,
@@ -39,65 +38,69 @@ class _OthersScreenState extends State<OthersScreen> {
                   child: LoadingWidget(),
                 );
               } else {
-                if(snapshot.data != null){
-                List<D> otherTrainingList = snapshot.data!.d!;
-                return ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: otherTrainingList.length,
-                    itemBuilder: (context, index) {
-                      return GestureDetector(
-                        onTap: () async {
-                          if (otherTrainingList[index].trainingType == 'T') {
-                            var alertResult = await showOkCancelAlertDialog(
-                                context: context,
-                                title: "Are you ready to take the test?",
-                                message:
-                                    "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
-                            if (alertResult == OkCancelResult.ok) {
-                              Provider.of<UserProvider>(context, listen: false)
-                                  .resetUserSelect();
-                              context.read<TabProvider>().resetSelection();
-                              if (context.mounted) {
-                                context.push('/training-test', extra: {
-                                  'screenTitle':
-                                      otherTrainingList[index].trainingName!,
-                                  'heroTag': Key(
-                                      otherTrainingList[index].id.toString()),
-                                  'trainingID': otherTrainingList[index].id,
-                                  'containsTest':
-                                      otherTrainingList[index].trainingType,
-                                  'cutOff':
-                                      otherTrainingList[index].cutOffMarks,
-                                });
+                if (snapshot.data != null) {
+                  List<D> otherTrainingList = snapshot.data!.d!;
+                  return ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: otherTrainingList.length,
+                      itemBuilder: (context, index) {
+                        return GestureDetector(
+                          onTap: () async {
+                            if (otherTrainingList[index].trainingType == 'T') {
+                              var alertResult = await showOkCancelAlertDialog(
+                                  context: context,
+                                  title: "Are you ready to take the test?",
+                                  message:
+                                      "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
+                              if (alertResult == OkCancelResult.ok) {
+                                Provider.of<UserProvider>(context,
+                                        listen: false)
+                                    .resetUserSelect();
+                                context.read<TabProvider>().resetSelection();
+                                if (context.mounted) {
+                                  context.push('/training-test', extra: {
+                                    'screenTitle':
+                                        otherTrainingList[index].trainingName!,
+                                    'heroTag': Key(
+                                        otherTrainingList[index].id.toString()),
+                                    'trainingID': otherTrainingList[index].id,
+                                    'containsTest':
+                                        otherTrainingList[index].trainingType,
+                                    'cutOff':
+                                        otherTrainingList[index].cutOffMarks,
+                                    'testTimer':
+                                        otherTrainingList[index].testTimer,
+                                  });
+                                }
                               }
+                            } else {
+                              context.push('/training', extra: {
+                                'screenTitle':
+                                    otherTrainingList[index].trainingName!,
+                                'heroTag':
+                                    Key(otherTrainingList[index].id.toString()),
+                                'trainingID': otherTrainingList[index].id,
+                                'containsTest':
+                                    otherTrainingList[index].trainingType,
+                                'cutOff': otherTrainingList[index].cutOffMarks,
+                                'trainingDetails': otherTrainingList[index],
+                              });
                             }
-                          } else {
-                            context.push('/training', extra: {
-                              'screenTitle':
-                                  otherTrainingList[index].trainingName!,
-                              'heroTag':
-                                  Key(otherTrainingList[index].id.toString()),
-                              'trainingID': otherTrainingList[index].id,
-                              'containsTest':
-                                  otherTrainingList[index].trainingType,
-                              'cutOff': otherTrainingList[index].cutOffMarks,
-                            });
-                          }
-                        },
-                        child: TopicCardWidget(
-                          height: size.height / 6,
-                          width: size.width,
-                          topicName: otherTrainingList[index].trainingName!,
-                          heroTag: Key("other_${otherTrainingList[index].id}"),
-                          accentColor: const Color(0xFF8B5CF6),
-                          subtitle: "Extra module • Tap to view",
-                        ),
-                      );
-                    });}else{
+                          },
+                          child: TopicCardWidget(
+                            height: size.height / 6,
+                            width: size.width,
+                            topicName: otherTrainingList[index].trainingName!,
+                            heroTag:
+                                Key("other_${otherTrainingList[index].id}"),
+                            accentColor: const Color(0xFF8B5CF6),
+                            subtitle: "Extra module • Tap to view",
+                          ),
+                        );
+                      });
+                } else {
                   return const Center(
-                    child: Text(
-                      'No Task'
-                    ),
+                    child: Text('No Task'),
                   );
                 }
               }

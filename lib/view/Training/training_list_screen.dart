@@ -100,6 +100,7 @@ class _TrainingListScreenState extends State<TrainingListScreen> {
                                   'trainingID': training.id,
                                   'containsTest': training.trainingType,
                                   'cutOff': training.cutOffMarks,
+                                  'testTimer': training.testTimer,
                                 });
                               }
                             }
@@ -115,14 +116,16 @@ class _TrainingListScreenState extends State<TrainingListScreen> {
                           }
                         } else {
                           bool loaderShowing = true;
-                          LottieLoadingDialog.show(context, message: "Checking location...");
+                          LottieLoadingDialog.show(context,
+                              message: "Checking location...");
 
                           try {
                             if (context.mounted) {
                               var location = await Provider.of<UserProvider>(
                                       context,
                                       listen: false)
-                                  .getLocation(context, trainingId: training.id!);
+                                  .getLocation(context,
+                                      trainingId: training.id!);
 
                               if (loaderShowing && context.mounted) {
                                 LottieLoadingDialog.dismiss(context);
@@ -134,7 +137,8 @@ class _TrainingListScreenState extends State<TrainingListScreen> {
                                   if (training.trainingType == 'T') {
                                     var alertResult = await showOkCancelAlertDialog(
                                         context: context,
-                                        title: "Are you ready to take the test?",
+                                        title:
+                                            "Are you ready to take the test?",
                                         message:
                                             "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
                                     if (alertResult == OkCancelResult.ok) {
@@ -147,10 +151,12 @@ class _TrainingListScreenState extends State<TrainingListScreen> {
                                             .resetSelection();
                                         context.push('/training-test', extra: {
                                           'screenTitle': training.trainingName!,
-                                          'heroTag': Key(training.id.toString()),
+                                          'heroTag':
+                                              Key(training.id.toString()),
                                           'trainingID': training.id,
                                           'containsTest': training.trainingType,
                                           'cutOff': training.cutOffMarks,
+                                          'testTimer': training.testTimer,
                                         });
                                       }
                                     }

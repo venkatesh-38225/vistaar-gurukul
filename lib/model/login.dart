@@ -65,6 +65,27 @@ class D {
     userName = json['UserName'];
   }
 
+  D.fromAuthJson(Map<String, dynamic> json, {required String fallbackUserId}) {
+    sType = json['__type']?.toString();
+    branchid = (json['Branchid'] ?? json['branchId'])?.toString();
+    branchname = (json['Branchname'] ?? json['branchName'])?.toString();
+    cluster = (json['Cluster'] ?? json['cluster'])?.toString();
+    department = (json['Department'] ?? json['department'])?.toString() ?? '';
+    designation = (json['Designation'] ?? json['designation'])?.toString();
+    email = (json['Email'] ?? json['email'])?.toString();
+    final languageValue = json['Language'] ?? json['language'];
+    language = languageValue is int
+        ? languageValue
+        : int.tryParse(languageValue?.toString() ?? '') ?? 1;
+    mobile = (json['Mobile'] ?? json['mobile'])?.toString();
+    role = (json['Role'] ?? json['role'])?.toString();
+    state = (json['State'] ?? json['state'])?.toString();
+    status = 'Success';
+    userId = (json['UserId'] ?? json['userId'])?.toString() ?? fallbackUserId;
+    userName =
+        (json['UserName'] ?? json['userName'])?.toString() ?? fallbackUserId;
+  }
+
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
     data['__type'] = sType;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:adaptive_dialog/adaptive_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +25,7 @@ class TrainingTestScreen extends StatefulWidget {
     required this.trainingId,
     required this.trainingType,
     required this.cutOff,
+    required this.testTimer,
   });
 
   final String screenTitle;
@@ -30,6 +33,7 @@ class TrainingTestScreen extends StatefulWidget {
   final int trainingId;
   final String trainingType;
   final int cutOff;
+  final int testTimer;
 
   @override
   State<TrainingTestScreen> createState() => _TrainingTestScreenState();
@@ -40,12 +44,30 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
   final _scrollController = ScrollController();
   bool _isSubmitting = false;
   late Future<dynamic> _trainingTestFuture;
+  Timer? _testCountdownTimer;
+  DateTime? _testDeadline;
+  int _remainingSeconds = 0;
+  bool _timerExpired = false;
+  List<D> _questions = [];
 
   @override
   void initState() {
     super.initState();
-    _trainingTestFuture =
-        context.read<UserProvider>().getTrainingTest(trainingId: widget.trainingId);
+    _trainingTestFuture = context
+        .read<UserProvider>()
+        .getTrainingTest(trainingId: widget.trainingId);
+    _trainingTestFuture.then((value) {
+      if (!mounted || value == null) return;
+      _questions = List<D>.from(value);
+      if (widget.testTimer > 0) {
+        _startTestCountdown();
+      }
+    }).catchError((error) {
+      debugPrint("Unable to start assessment timer: $error");
+      if (mounted) {
+        setState(() => _timerExpired = true);
+      }
+    });
     // _userProvider = Provider.of<UserProvider>(context, listen: false);
     Future.delayed(const Duration(milliseconds: 100), () {
       // Provider.of<UserProvider>(context, listen: false)
@@ -56,11 +78,103 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!(context.read<TabProvider>().isFromCompleted)) {
-        context.read<UserProvider>().addTranscript(
-            trainingId: widget.trainingId, trainingType: "T");
+        context
+            .read<UserProvider>()
+            .addTranscript(trainingId: widget.trainingId, trainingType: "T");
       }
     });
     debugPrint("cutOff = ${widget.cutOff}");
+  }
+
+  bool get _isTimedTestActive => widget.testTimer > 0 && !_timerExpired;
+
+  void _startTestCountdown() {
+    _testCountdownTimer?.cancel();
+    _testDeadline = DateTime.now().add(Duration(seconds: widget.testTimer));
+    setState(() {
+      _remainingSeconds = widget.testTimer;
+      _timerExpired = false;
+    });
+    _testCountdownTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _updateCountdown());
+  }
+
+  void _updateCountdown() {
+    final deadline = _testDeadline;
+    if (!mounted || deadline == null) return;
+    final milliseconds = deadline.difference(DateTime.now()).inMilliseconds;
+    final remaining = milliseconds <= 0 ? 0 : (milliseconds / 1000).ceil();
+    if (remaining == _remainingSeconds) return;
+    setState(() {
+      _remainingSeconds = remaining;
+      if (remaining == 0) _timerExpired = true;
+    });
+    if (remaining == 0) {
+      _testCountdownTimer?.cancel();
+      _autoSubmitTest();
+    }
+  }
+
+  String get _formattedRemainingTime {
+    final hours = _remainingSeconds ~/ 3600;
+    final minutes = (_remainingSeconds % 3600) ~/ 60;
+    final seconds = _remainingSeconds % 60;
+    final mm = minutes.toString().padLeft(2, '0');
+    final ss = seconds.toString().padLeft(2, '0');
+    return hours > 0
+        ? '${hours.toString().padLeft(2, '0')}:$mm:$ss'
+        : '$mm:$ss';
+  }
+
+  Future<void> _autoSubmitTest() async {
+    if (_isSubmitting || _questions.isEmpty) return;
+    setState(() => _isSubmitting = true);
+
+    final tabProvider = context.read<TabProvider>();
+    final selectedByQuestion = <int, int?>{};
+    for (var index = 0;
+        index < tabProvider.qId.length && index < tabProvider.opSelected.length;
+        index++) {
+      selectedByQuestion[tabProvider.qId[index]] =
+          tabProvider.opSelected[index];
+    }
+
+    final questionIds = _questions.map((question) => question.id!).toList();
+    final selectedOptions = questionIds
+        .map<int?>((questionId) => selectedByQuestion[questionId])
+        .toList();
+    final marks = context.read<UserProvider>().getMarks;
+    final decision = marks < widget.cutOff ? "Fail" : "Pass";
+    final submitted = await _submitTestUpdate(
+      testDecision: decision,
+      questionIds: questionIds,
+      selectedOptions: selectedOptions,
+    );
+
+    if (!mounted) return;
+    if (!submitted) {
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              "Time is up, but the test could not be submitted. Please use SUBMIT TEST to retry."),
+        ),
+      );
+      return;
+    }
+
+    try {
+      context.read<UserProvider>()
+        ..setPercAndStatus()
+        ..getOtherTrainingData();
+    } catch (e) {
+      debugPrint("Error refreshing after automatic submission: $e");
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text("Time is up. Test submitted automatically.")),
+    );
+    context.go('/home');
   }
 
   Future<bool> onFailUpdate() async {
@@ -71,7 +185,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     return _submitTestUpdate(testDecision: "Pass");
   }
 
-  Future<bool> _submitTestUpdate({required String testDecision}) async {
+  Future<bool> _submitTestUpdate({
+    required String testDecision,
+    List<int>? questionIds,
+    List<int?>? selectedOptions,
+  }) async {
     final userProvider = context.read<UserProvider>();
     final tabProvider = context.read<TabProvider>();
 
@@ -97,11 +215,10 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
         return false;
       }
 
-      final detailsResponse =
-          await userProvider.addUserTestTrancriptDetails(
+      final detailsResponse = await userProvider.addUserTestTrancriptDetails(
         trainingId: transcriptId.toString(),
-        OpSelected: tabProvider.opSelected,
-        Qid: tabProvider.qId,
+        OpSelected: selectedOptions ?? List<int?>.from(tabProvider.opSelected),
+        Qid: questionIds ?? tabProvider.qId,
       );
 
       debugPrint(
@@ -120,6 +237,16 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
 
     return WillPopScope(
       onWillPop: () async {
+        if (_isTimedTestActive || _isSubmitting) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_isTimedTestActive
+                  ? "You cannot exit until the assessment timer ends."
+                  : "Your test is being submitted. Please wait."),
+            ),
+          );
+          return false;
+        }
         // return true;
 
         return await showDialog<bool>(
@@ -132,8 +259,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                   ElevatedButton(
                     style:
                         ElevatedButton.styleFrom(backgroundColor: Colors.white),
-                    onPressed: () =>
-                        Navigator.of(dialogContext).pop(false),
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
                     child: const Text(
                       'Cancel',
                       style: TextStyle(color: Colors.black),
@@ -159,6 +285,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
             size: size,
             title: widget.screenTitle,
             automaticallyImplyLeading: true,
+            showLogout: !_isTimedTestActive && !_isSubmitting,
           ),
           body: FutureBuilder(
             future: _trainingTestFuture,
@@ -183,6 +310,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
+                      if (widget.testTimer > 0) _buildTimerCard(),
                       Flexible(child: indicator(controller, snapshot)),
                       content(size, controller, snapshot, context),
                     ],
@@ -219,7 +347,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                       color: ColorConstraints.cardColor(context),
                       borderRadius: BorderRadius.circular(24),
@@ -245,7 +374,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                         height: size.height / 4.5,
                         width: size.width,
                         decoration: BoxDecoration(
-                            color: ColorConstraints.testCardBackgroundColor(context),
+                            color: ColorConstraints.testCardBackgroundColor(
+                                context),
                             borderRadius: BorderRadius.circular(16)),
                         margin: const EdgeInsets.all(12.0),
                         padding: const EdgeInsets.all(16.0),
@@ -323,7 +453,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20.0, vertical: 12.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -331,9 +462,14 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                           ? Container()
                           : OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                side: BorderSide(color: ColorConstraints.testControlsColor(context).withOpacity(0.5)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                side: BorderSide(
+                                    color: ColorConstraints.testControlsColor(
+                                            context)
+                                        .withOpacity(0.5)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
                               ),
                               onPressed: () {
                                 controller.animateToPage(
@@ -341,8 +477,15 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     duration: const Duration(milliseconds: 100),
                                     curve: Curves.linear);
                               },
-                              icon: Icon(Icons.arrow_back_rounded, color: ColorConstraints.testControlsColor(context), size: 18),
-                              label: Text("Back", style: GoogleFonts.plusJakartaSans(color: ColorConstraints.testControlsColor(context), fontWeight: FontWeight.bold)),
+                              icon: Icon(Icons.arrow_back_rounded,
+                                  color: ColorConstraints.testControlsColor(
+                                      context),
+                                  size: 18),
+                              label: Text("Back",
+                                  style: GoogleFonts.plusJakartaSans(
+                                      color: ColorConstraints.testControlsColor(
+                                          context),
+                                      fontWeight: FontWeight.bold)),
                             ),
                       (context
                                   .read<TabProvider>()
@@ -351,9 +494,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                               trainingTest.opt1Text!.isEmpty)
                           ? ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: ColorConstraints.primaryColor(context),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                backgroundColor:
+                                    ColorConstraints.primaryColor(context),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
                                 elevation: 2,
                               ),
                               onPressed: () {
@@ -362,8 +508,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     duration: const Duration(milliseconds: 100),
                                     curve: Curves.linear);
                               },
-                              icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
-                              label: Text("Next", style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold)),
+                              icon: const Icon(Icons.arrow_forward_rounded,
+                                  color: Colors.white, size: 18),
+                              label: Text("Next",
+                                  style: GoogleFonts.plusJakartaSans(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold)),
                             )
                           : Container(),
                     ],
@@ -371,7 +521,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                 ),
                 index + 1 == snapshot.data.length
                     ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20.0, vertical: 12.0),
                         child: Container(
                           width: double.infinity,
                           height: 52,
@@ -380,7 +531,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFF15A24).withOpacity(0.35),
+                                color:
+                                    const Color(0xFFF15A24).withOpacity(0.35),
                                 blurRadius: 12,
                                 offset: const Offset(0, 6),
                               ),
@@ -388,6 +540,15 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                           ),
                           child: ElevatedButton(
                               onPressed: () async {
+                                if (_isTimedTestActive) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                          "The test will be submitted automatically when the timer ends."),
+                                    ),
+                                  );
+                                  return;
+                                }
                                 if (_isSubmitting) {
                                   return;
                                 }
@@ -400,7 +561,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
 
                                 TestDecision testDecision = TestDecision.Pass;
                                 int cuttOffString =
-                                    ((widget.cutOff / snapshot.data.length) * 100)
+                                    ((widget.cutOff / snapshot.data.length) *
+                                            100)
                                         .round();
                                 debugPrint("Marks = $percentage");
                                 if (percentage < widget.cutOff) {
@@ -432,9 +594,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     context: context,
                                     builder: (context) {
                                       return AlertDialog(
-                                        backgroundColor: ColorConstraints.cardColor(context),
+                                        backgroundColor:
+                                            ColorConstraints.cardColor(context),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(24.0),
+                                          borderRadius:
+                                              BorderRadius.circular(24.0),
                                         ),
                                         title: Text(
                                           "Better luck next time",
@@ -492,10 +656,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                                           ". But don't be disheartened! Keep learning and practicing, and you're sure to ace it next time!",
                                                     ),
                                                   ],
-                                                  style: GoogleFonts.plusJakartaSans(
+                                                  style: GoogleFonts
+                                                      .plusJakartaSans(
                                                     fontWeight: FontWeight.w400,
                                                     fontSize: 15,
-                                                    color: ColorConstraints.iconColor(context),
+                                                    color: ColorConstraints
+                                                        .iconColor(context),
                                                     height: 1.4,
                                                   ),
                                                 ),
@@ -507,9 +673,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                           TextButton(
                                             child: Text(
                                               'OK',
-                                              style: GoogleFonts.plusJakartaSans(
+                                              style:
+                                                  GoogleFonts.plusJakartaSans(
                                                 fontWeight: FontWeight.bold,
-                                                color: ColorConstraints.secondaryColor(context),
+                                                color: ColorConstraints
+                                                    .secondaryColor(context),
                                               ),
                                             ),
                                             onPressed: () async {
@@ -534,9 +702,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     context: context,
                                     builder: (context) {
                                       return AlertDialog(
-                                        backgroundColor: ColorConstraints.cardColor(context),
+                                        backgroundColor:
+                                            ColorConstraints.cardColor(context),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(24.0),
+                                          borderRadius:
+                                              BorderRadius.circular(24.0),
                                         ),
                                         title: Text(
                                           "Congratulations!",
@@ -563,7 +733,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                                       "Fantastic job! You score",
                                                   children: [
                                                     TextSpan(
-                                                      text: " ${((percentage / snapshot.data.length) * 100).toStringAsFixed(1)}%",
+                                                      text:
+                                                          " ${((percentage / snapshot.data.length) * 100).toStringAsFixed(1)}%",
                                                       style: const TextStyle(
                                                         fontWeight:
                                                             FontWeight.bold,
@@ -576,10 +747,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                                           ", You've passed the quiz with flying colors. Keep shining!",
                                                     ),
                                                   ],
-                                                  style: GoogleFonts.plusJakartaSans(
+                                                  style: GoogleFonts
+                                                      .plusJakartaSans(
                                                     fontWeight: FontWeight.w400,
                                                     fontSize: 15,
-                                                    color: ColorConstraints.iconColor(context),
+                                                    color: ColorConstraints
+                                                        .iconColor(context),
                                                     height: 1.4,
                                                   ),
                                                 ),
@@ -591,9 +764,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                           TextButton(
                                             child: Text(
                                               'OK',
-                                              style: GoogleFonts.plusJakartaSans(
+                                              style:
+                                                  GoogleFonts.plusJakartaSans(
                                                 fontWeight: FontWeight.bold,
-                                                color: ColorConstraints.secondaryColor(context),
+                                                color: ColorConstraints
+                                                    .secondaryColor(context),
                                               ),
                                             ),
                                             onPressed: () async {
@@ -689,6 +864,44 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildTimerCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: (_remainingSeconds <= 60 ? Colors.red : Colors.orange)
+            .withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.timer_outlined,
+            color: _remainingSeconds <= 60 ? Colors.red : Colors.orange,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _formattedRemainingTime,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: _remainingSeconds <= 60 ? Colors.red : Colors.orange,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _testCountdownTimer?.cancel();
+    scrollController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 }
 

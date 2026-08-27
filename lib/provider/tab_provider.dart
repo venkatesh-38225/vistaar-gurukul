@@ -30,9 +30,13 @@ class TabProvider extends ChangeNotifier {
 
   int get countdownValue => _countdownValue;
 
-  void startCountdown() {
-    _countdownValue = 5;
+  void startCountdown(int seconds) {
+    _countdownValue = seconds < 0 ? 0 : seconds;
     _countdownTimer?.cancel();
+    notifyListeners();
+    if (_countdownValue == 0) {
+      return;
+    }
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _countdownValue--;
       debugPrint("countdown = $_countdownTimer");

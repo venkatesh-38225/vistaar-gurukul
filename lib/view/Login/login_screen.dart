@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:gurukul/constants/environment_prod.dart';
 
 // import 'package:gurukul/model/login.dart';
 import 'package:gurukul/provider/api_provider.dart';
@@ -13,8 +12,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../common/utils.dart';
-import '../../constants/environment_dev.dart';
-import '../../main.dart';
 import '../../model/login.dart';
 import '../../provider/auth_provider.dart';
 
@@ -297,71 +294,57 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } else {
       // Internet connection is available
-      final Future<Map<String, dynamic>> successMsg =
-          Provider.of<AuthProvider>(context, listen: false).login(
-              userId: userController.text, password: passwordController.text);
-      successMsg.then((value) async {
-        if (value['status']) {
-          Login userData = value['user'];
-          String userId = userData.d?.userId ?? "";
+      final value = await auth.login(
+        userId: userController.text,
+        password: passwordController.text,
+      );
+      if (!mounted) return;
 
-          if (environment is DevEnv) {
-            // For Dev environment, skip OTP and go straight to home
-            debugPrint("Dev Environment: Skipping OTP");
+      if (value['status'] != true) {
+        CustomSnackBar.show(
+          context,
+          message: value['message'].toString(),
+          type: SnackBarType.error,
+        );
+        return;
+      }
 
-            // Save user to shared preferences and UserPreference
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString("user", jsonEncode(userData.toJson()));
-            if (userData.d != null) {
-              await UserPreference().setUser(userData.d!);
-            }
+      final Login userData = value['user'];
+      if (value['twoFactorEnabled'] != true) {
+        await _persistUserAndOpenHome(userData);
+        return;
+      }
 
-            // Store in provider
-            if (mounted) {
-              Provider.of<UserProvider>(context, listen: false).setUser =
-                  userData;
-              context.go('/home');
-            }
-          } else {
-            // For Prod environment, proceed with OTP logic
-            debugPrint("Prod Environment: Proceeding with OTP");
+      final String userId = userData.d?.userId ?? userController.text.trim();
+      final otpSent = await auth.sendOTP(userId);
+      if (!mounted) return;
 
-            // Call SendOTP API (will return "111111" for userId "54321")
-            String otpResponse =
-                await Provider.of<AuthProvider>(context, listen: false)
-                    .sendOTP(userId);
-
-            if (otpResponse != "0") {
-              if (mounted) {
-                CustomSnackBar.show(
-                  context,
-                  message: 'OTP sent to your mobile number',
-                  type: SnackBarType.success,
-                );
-                context.go('/otp', extra: {
-                  'user': userData,
-                  'otp': otpResponse,
-                });
-              }
-            } else {
-              if (mounted) {
-                CustomSnackBar.show(
-                  context,
-                  message: 'Mobile Number not available',
-                  type: SnackBarType.warning,
-                );
-              }
-            }
-          }
-        } else {
-          CustomSnackBar.show(
-            context,
-            message: value['message'].toString(),
-            type: SnackBarType.error,
-          );
-        }
-      });
+      if (otpSent) {
+        CustomSnackBar.show(
+          context,
+          message: 'OTP sent to your mobile number',
+          type: SnackBarType.success,
+        );
+        context.go('/otp', extra: {'user': userData});
+      } else {
+        CustomSnackBar.show(
+          context,
+          message: 'Unable to send OTP. Please try again.',
+          type: SnackBarType.warning,
+        );
+      }
     }
+  }
+
+  Future<void> _persistUserAndOpenHome(Login userData) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("user", jsonEncode(userData.toJson()));
+    if (userData.d != null) {
+      await UserPreference().setUser(userData.d!);
+    }
+    if (!mounted) return;
+    Provider.of<UserProvider>(context, listen: false).setUser = userData;
+    context.go('/home');
   }
 
   CustomTextField passwordField() {

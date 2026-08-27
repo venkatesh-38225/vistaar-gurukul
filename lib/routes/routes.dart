@@ -113,6 +113,8 @@ final router = GoRouter(
         int cutOff = args['cutOff'] ?? 0;
         bool fromCompleted = args['fromCompleted'] ?? false;
         trainingD.D? trainingDetails = args['trainingDetails'];
+        int swipeTimer = args['swipeTimer'] ?? trainingDetails?.swipeTimer ?? 0;
+        int testTimer = args['testTimer'] ?? trainingDetails?.testTimer ?? 0;
         debugPrint("containsTest = $containsTest");
         return TrainingScreen(
           screenTitle: screenTitle,
@@ -122,6 +124,8 @@ final router = GoRouter(
           fromCompleted: fromCompleted,
           trainingDetails: trainingDetails,
           cutOff: cutOff,
+          swipeTimer: swipeTimer,
+          testTimer: testTimer,
         );
       },
       pageBuilder: (context, state) {
@@ -133,6 +137,8 @@ final router = GoRouter(
         int cutOff = args['cutOff'] ?? 0;
         bool fromCompleted = args['fromCompleted'] ?? false;
         trainingD.D? trainingDetails = args['trainingDetails'];
+        int swipeTimer = args['swipeTimer'] ?? trainingDetails?.swipeTimer ?? 0;
+        int testTimer = args['testTimer'] ?? trainingDetails?.testTimer ?? 0;
         debugPrint("containsTest = $containsTest");
 
         return buildPageWithDefaultTransition(
@@ -146,6 +152,8 @@ final router = GoRouter(
               fromCompleted: fromCompleted,
               trainingDetails: trainingDetails,
               cutOff: cutOff,
+              swipeTimer: swipeTimer,
+              testTimer: testTimer,
             ));
       },
     ),
@@ -203,6 +211,7 @@ final router = GoRouter(
         int trainingId = args['trainingID'];
         String containsTest = args['containsTest'];
         int cutOff = args['cutOff'];
+        int testTimer = args['testTimer'] ?? 0;
 
         return TrainingTestScreen(
           screenTitle: screenTitle,
@@ -210,6 +219,7 @@ final router = GoRouter(
           trainingId: trainingId,
           trainingType: containsTest,
           cutOff: cutOff,
+          testTimer: testTimer,
         );
       },
       pageBuilder: (context, state) {
@@ -219,6 +229,7 @@ final router = GoRouter(
         int trainingId = args['trainingID'];
         String containsTest = args['containsTest'];
         int cutOff = args['cutOff'];
+        int testTimer = args['testTimer'] ?? 0;
 
         return buildPageWithDefaultTransition(
             context: context,
@@ -229,6 +240,7 @@ final router = GoRouter(
               trainingId: trainingId,
               trainingType: containsTest,
               cutOff: cutOff,
+              testTimer: testTimer,
             ));
       },
     ),
@@ -406,6 +418,7 @@ Future<bool> isDeviceRooted() async {
     return true;
   }
 }
+
 class GoRouterObserver extends NavigatorObserver {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {

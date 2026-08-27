@@ -6,6 +6,10 @@ class DevEnv implements Environment {
       "https://vistaarapis.vistaarfinance.net.in:469/VisAPIs.svc";
 
   @override
+  String get authBaseUrl =>
+      "https://vistaarapis.vistaarfinance.net.in:480/api";
+
+  @override
   String get assetUrl =>
       "https://productivity.vistaarfinance.net.in:469/Gurukul_docs";
 

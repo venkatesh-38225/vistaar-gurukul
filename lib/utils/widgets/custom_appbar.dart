@@ -24,11 +24,13 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.title,
     // required this.onPress,
     this.automaticallyImplyLeading = false,
+    this.showLogout = true,
   });
 
   final Size size;
   final String title;
   final bool automaticallyImplyLeading;
+  final bool showLogout;
   // final Function onPress;
 
   @override
@@ -64,37 +66,40 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              color: ColorConstraints.cardColor(context),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: ColorConstraints.cardShadowColor(context),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
+          if (showLogout)
+            Container(
+              decoration: BoxDecoration(
+                color: ColorConstraints.cardColor(context),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: ColorConstraints.cardShadowColor(context),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                iconSize: 22,
+                constraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
                 ),
-              ],
-            ),
-            child: IconButton(
-              iconSize: 22,
-              constraints: const BoxConstraints(
-                minWidth: 40,
-                minHeight: 40,
+                padding: EdgeInsets.zero,
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => const LogoutDialog(),
+                  );
+                },
+                icon: Icon(
+                  Icons.power_settings_new,
+                  color: Colors.red.shade400,
+                ),
               ),
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => const LogoutDialog(),
-                );
-              },
-              icon: Icon(
-                Icons.power_settings_new,
-                color: Colors.red.shade400,
-              ),
-            ),
-          ),
+            )
+          else
+            const SizedBox(width: 40),
         ],
       ),
       centerTitle: true,

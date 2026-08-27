@@ -6,6 +6,10 @@ class ProdEnv extends Environment {
       "https://vistaarapis.vistaarfinance.net.in:469/VisAPIsProd.svc";
 
   @override
+  String get authBaseUrl =>
+      "https://vistaarapis.vistaarfinance.net.in:482/api";
+
+  @override
   String get assetUrl =>
       "https://productivity.vistaarfinance.net.in:469/Gurukul_docsProd";
 

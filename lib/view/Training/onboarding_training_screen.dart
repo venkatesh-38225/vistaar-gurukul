@@ -84,6 +84,8 @@ class _OnBoardingTrainingScreenState extends State<OnBoardingTrainingScreen> {
                                 'heroTag': Key(training.id.toString()),
                                 'trainingID': training.id,
                                 'containsTest': training.trainingType,
+                                'cutOff': training.cutOffMarks,
+                                'testTimer': training.testTimer,
                               });
                             }
                           }

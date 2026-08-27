@@ -28,20 +28,20 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   TextEditingController controller = TextEditingController(text: "");
   int pinLength = 6;
   bool hasError = false;
-  int? otp;
   String? mobileNumber;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
     mobileNumber = widget.user.d?.mobile;
     if (widget.initialOtp != null && widget.initialOtp != "0") {
-      debugPrint("Initial OTP provided: ${widget.initialOtp}");
-      otp = int.tryParse(widget.initialOtp!);
-    } else {
-      Future.delayed(const Duration(milliseconds: 50)).then((value) {
-        sendOtp();
-      });
+      debugPrint("Test OTP flow initialized");
     }
   }
 
@@ -56,14 +56,18 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     try {
       final String userId = widget.user.d?.userId ?? "";
-      final value = await Provider.of<AuthProvider>(context, listen: false)
+      final sent = await Provider.of<AuthProvider>(context, listen: false)
           .sendOTP(userId);
 
-      if (mounted) LottieLoadingDialog.dismiss(context); // hide loading
-      debugPrint("OTP => $value");
-      setState(() {
-        otp = int.tryParse(value);
-      });
+      if (!mounted) return;
+      LottieLoadingDialog.dismiss(context);
+      CustomSnackBar.show(
+        context,
+        message: sent
+            ? "OTP sent to your mobile number"
+            : "Unable to send OTP. Please try again.",
+        type: sent ? SnackBarType.success : SnackBarType.error,
+      );
     } catch (e) {
       if (mounted) LottieLoadingDialog.dismiss(context);
       debugPrint("Error sending OTP: $e");
@@ -363,7 +367,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       return;
     }
 
-    if (int.tryParse(otpText) == otp) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    LottieLoadingDialog.show(context, message: "Verifying OTP...");
+    final isVerified = await authProvider.verifyOTP(
+      userId: widget.user.d?.userId ?? "",
+      otp: otpText,
+    );
+    if (!mounted) return;
+    LottieLoadingDialog.dismiss(context);
+
+    if (isVerified) {
       debugPrint("OTP Verified Successfully");
 
       CustomSnackBar.show(
@@ -374,8 +387,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
       // Show non-dismissible loading spinner while registering keys/session
       LottieLoadingDialog.show(context, message: "Setting up your account...");
-
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
       await Future.delayed(const Duration(seconds: 1));
       // Perform app key mapping logic from Bandhu app

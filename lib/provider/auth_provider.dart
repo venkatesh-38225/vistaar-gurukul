@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:gurukul/common/shared_pref.dart';
 
 import '../constants/app_constants.dart';
 import '../model/login.dart';
@@ -10,6 +9,9 @@ import '../model/login.dart';
 enum Status { NotLoggedIn, LoggedIn, Authenticating, LoggedOut }
 
 class AuthProvider extends ChangeNotifier {
+  AuthProvider({Dio? dio}) : _dio = dio ?? Dio();
+
+  final Dio _dio;
   Status _loggedInStatus = Status.NotLoggedIn;
   bool _showPassword = false;
 
@@ -23,85 +25,134 @@ class AuthProvider extends ChangeNotifier {
 
   Future<Map<String, dynamic>> login(
       {required String userId, required String password}) async {
-    Dio dio = Dio();
-    Login? userData;
-    Map<String, dynamic> result;
-
-    Map<String, String> loginData = {"EmpId": userId, "Password": password};
+    final loginData = {
+      "userId": userId.trim(),
+      "password": password,
+      "source": authSource,
+    };
     _loggedInStatus = Status.Authenticating;
+    notifyListeners();
     debugPrint("=== LOGIN API REQUEST ===");
     debugPrint("URL: $loginUrl");
-    debugPrint("Payload: $loginData");
     try {
-      Response response = await dio.post(
+      final response = await _dio.post(
         loginUrl,
         data: loginData,
+        options: _authOptions,
       );
       debugPrint("Response Status: ${response.statusCode}");
       debugPrint("Raw Response Body: ${response.data}");
       debugPrint("=========================");
 
-      if (response.statusCode == 200) {
-        userData = Login.fromJson(jsonDecode(response.toString()));
-        debugPrint("Parsed User Details: ${jsonEncode(userData.d?.toJson())}");
-
-        if (userData.d!.status == "Success") {
-          _loggedInStatus = Status.LoggedIn;
-          notifyListeners();
-
-          result = {'status': true, 'message': 'Successful', 'user': userData};
-        } else {
-          _loggedInStatus = Status.NotLoggedIn;
-          notifyListeners();
-
-          result = {'status': false, 'message': 'Invalid Details'};
-        }
-      } else {
-        _loggedInStatus = Status.NotLoggedIn;
+      final body = _responseMap(response.data);
+      if (_is2xx(response.statusCode) && body['success'] == true) {
+        final data = body['data'] is Map
+            ? Map<String, dynamic>.from(body['data'] as Map)
+            : <String, dynamic>{};
+        final userData = Login(
+          d: D.fromAuthJson(data, fallbackUserId: userId.trim()),
+        );
+        _loggedInStatus = Status.LoggedIn;
         notifyListeners();
-
-        result = {
-          'status': false,
-          'message': json.decode(response.data)['error']
+        return {
+          'status': true,
+          'message': body['message']?.toString() ?? 'Success',
+          'user': userData,
+          'twoFactorEnabled': data['twoFactorEnabled'] == true,
         };
       }
+
+      _loggedInStatus = Status.NotLoggedIn;
+      notifyListeners();
+      return {
+        'status': false,
+        'message': body['message']?.toString() ?? 'Invalid Details',
+      };
+    } on DioException catch (e) {
+      debugPrint("Login Exception: $e");
+      _loggedInStatus = Status.NotLoggedIn;
+      notifyListeners();
+      final body = _responseMap(e.response?.data);
+      return {
+        'status': false,
+        'message': body['message']?.toString() ??
+            'Unable to login. Please try again.',
+      };
     } catch (e) {
       debugPrint("Login Exception: $e");
       _loggedInStatus = Status.NotLoggedIn;
       notifyListeners();
-      result = {'status': false, 'message': 'Request failed: $e'};
+      return {'status': false, 'message': 'Unable to login. Please try again.'};
     }
-
-    return result;
   }
 
-  Future<String> sendOTP(String userId) async {
+  Future<bool> sendOTP(String userId) async {
     if (userId == "54321") {
-      debugPrint("Test User detected, returning hardcoded OTP 111111");
-      return "111111";
+      debugPrint("Test User detected, skipping SendOtp API");
+      return true;
     }
-    Dio dio = Dio();
     debugPrint("Sending OTP for $userId to $sendOtpUrl");
     try {
-      Response response = await dio.post(
+      final response = await _dio.post(
         sendOtpUrl,
-        data: {"UserId": userId},
-        options: Options(
-          headers: {
-            "Content-Type": "application/json",
-          },
-        ),
+        data: {"userId": userId, "source": authSource},
+        options: _authOptions,
       );
-      if (response.statusCode == 200) {
-        // Response format: {"d": "102230"}
-        return response.data['d'].toString();
-      } else {
-        return "0";
-      }
+      return _isSuccessfulResponse(response);
     } catch (e) {
       debugPrint("Error sending OTP: $e");
-      return "0";
+      return false;
     }
+  }
+
+  Future<bool> verifyOTP({required String userId, required String otp}) async {
+    if (userId == "54321") {
+      return otp == "111111";
+    }
+    try {
+      final response = await _dio.post(
+        verifyOtpUrl,
+        data: {"userId": userId, "otp": otp, "source": authSource},
+        options: _authOptions,
+      );
+      return _isSuccessfulResponse(response);
+    } catch (e) {
+      debugPrint("Error verifying OTP: $e");
+      return false;
+    }
+  }
+
+  Options get _authOptions => Options(headers: {
+        "Content-Type": "application/json",
+        "x-api-key": authApiKey,
+      });
+
+  bool _isSuccessfulResponse(Response response) {
+    if (!_is2xx(response.statusCode)) return false;
+    final body = _responseMap(response.data);
+    if (body['success'] is bool && body['success'] != true) return false;
+    final data = body['data'];
+    if (data is bool) return data;
+    if (data is Map) {
+      for (final key in ['verified', 'isVerified', 'isValid']) {
+        if (data[key] is bool) return data[key] == true;
+      }
+    }
+    return true;
+  }
+
+  bool _is2xx(int? statusCode) =>
+      statusCode != null && statusCode >= 200 && statusCode < 300;
+
+  Map<String, dynamic> _responseMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return <String, dynamic>{};
   }
 
   Future<String> addAppKey(Map body) async {

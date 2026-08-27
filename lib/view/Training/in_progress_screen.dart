@@ -45,7 +45,6 @@ class _InProgressScreenState extends State<InProgressScreen> {
                 return const Center(
                   child: LottieLoadingWidget(
                     size: 150,
-                    
                     message: "Loading trainings...",
                   ),
                 );
@@ -103,6 +102,7 @@ class _InProgressScreenState extends State<InProgressScreen> {
                                     'trainingID': training.id,
                                     'containsTest': training.trainingType,
                                     'cutOff': training.cutOffMarks,
+                                    'testTimer': training.testTimer,
                                   });
                                 }
                               }
@@ -118,7 +118,8 @@ class _InProgressScreenState extends State<InProgressScreen> {
                             }
                           } else {
                             bool loaderShowing = true;
-                            LottieLoadingDialog.show(context, message: "Checking location...");
+                            LottieLoadingDialog.show(context,
+                                message: "Checking location...");
 
                             try {
                               if (context.mounted) {
@@ -136,7 +137,8 @@ class _InProgressScreenState extends State<InProgressScreen> {
                                       if (training.trainingType == 'T') {
                                         var alertResult = await showOkCancelAlertDialog(
                                             context: context,
-                                            title: "Are you ready to take the test?",
+                                            title:
+                                                "Are you ready to take the test?",
                                             message:
                                                 "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
                                         if (alertResult == OkCancelResult.ok) {
@@ -147,19 +149,25 @@ class _InProgressScreenState extends State<InProgressScreen> {
                                             context
                                                 .read<TabProvider>()
                                                 .resetSelection();
-                                            context.push('/training-test', extra: {
-                                              'screenTitle': training.trainingName!,
-                                              'heroTag': Key(training.id.toString()),
+                                            context
+                                                .push('/training-test', extra: {
+                                              'screenTitle':
+                                                  training.trainingName!,
+                                              'heroTag':
+                                                  Key(training.id.toString()),
                                               'trainingID': training.id,
-                                              'containsTest': training.trainingType,
+                                              'containsTest':
+                                                  training.trainingType,
                                               'cutOff': training.cutOffMarks,
+                                              'testTimer': training.testTimer,
                                             });
                                           }
                                         }
                                       } else {
                                         context.push('/training', extra: {
                                           'screenTitle': training.trainingName!,
-                                          'heroTag': Key(training.id.toString()),
+                                          'heroTag':
+                                              Key(training.id.toString()),
                                           'trainingID': training.id,
                                           'containsTest': training.trainingType,
                                           'cutOff': training.cutOffMarks,
@@ -199,23 +207,25 @@ class _InProgressScreenState extends State<InProgressScreen> {
                             }
                           }
                         },
-                        child: Builder(
-                          builder: (context) {
-                            double progressVal = (double.tryParse(training.completedPercentage ?? "0") ?? 0) / 100.0;
-                            if (progressVal > 1.0) progressVal = 1.0;
-                            if (progressVal < 0.0) progressVal = 0.0;
+                        child: Builder(builder: (context) {
+                          double progressVal = (double.tryParse(
+                                      training.completedPercentage ?? "0") ??
+                                  0) /
+                              100.0;
+                          if (progressVal > 1.0) progressVal = 1.0;
+                          if (progressVal < 0.0) progressVal = 0.0;
 
-                            return TopicCardWidget(
-                              heroTag: Key(training.id.toString()),
-                              height: size.height / 6,
-                              width: size.width,
-                              topicName: training.trainingName!,
-                              accentColor: const Color(0xFF3B82F6),
-                              subtitle: "In Progress • ${(progressVal * 100).toStringAsFixed(0)}% completed",
-                              progress: progressVal,
-                            );
-                          }
-                        ),
+                          return TopicCardWidget(
+                            heroTag: Key(training.id.toString()),
+                            height: size.height / 6,
+                            width: size.width,
+                            topicName: training.trainingName!,
+                            accentColor: const Color(0xFF3B82F6),
+                            subtitle:
+                                "In Progress • ${(progressVal * 100).toStringAsFixed(0)}% completed",
+                            progress: progressVal,
+                          );
+                        }),
                       );
                     },
                   ),

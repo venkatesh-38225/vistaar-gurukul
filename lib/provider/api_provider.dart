@@ -623,7 +623,7 @@ isLoading  = true;
   Future<int> addUserTestTrancriptDetails(
       {required String trainingId,
       required List<int> Qid,
-      required List<int> OpSelected}) async {
+      required List<int?> OpSelected}) async {
     // Map<String, dynamic> testDetailsData = {
     //   "Tid": 2,
     //   "QId": [10, 20, 30, 40, 50],
@@ -634,8 +634,7 @@ isLoading  = true;
       "QId": Qid,
       "OpSelected": OpSelected
     };
-    debugPrint(
-        "AddUserTestTrancriptDetails request body = $testDetailsData");
+    debugPrint("AddUserTestTrancriptDetails request body = $testDetailsData");
     Response response =
         await dio.post(addUserTestTrancriptDetailsUrl, data: testDetailsData);
     debugPrint(

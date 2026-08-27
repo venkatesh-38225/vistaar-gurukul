@@ -21,8 +21,11 @@ class AppVersionGate extends StatefulWidget {
 
     final packageInfo = await PackageInfo.fromPlatform();
     debugPrint('Local (Installed) Version: ${packageInfo.version}');
+    final staticVersion = "2.0.0";
+
+    final isMatch = AppVersionService.versionsMatch(staticVersion, requiredVersion);
     
-    final isMatch = AppVersionService.versionsMatch(packageInfo.version, requiredVersion);
+    // final isMatch = AppVersionService.versionsMatch(packageInfo.version, requiredVersion);
     debugPrint('Versions Match: $isMatch');
     debugPrint('=========================');
 

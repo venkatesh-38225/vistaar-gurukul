@@ -32,6 +32,8 @@ class D {
   int? noQuestions;
   String? trainingStatus;
   String? geoLocation;
+  int? swipeTimer;
+  int? testTimer;
 
   D({
     this.sType,
@@ -44,6 +46,8 @@ class D {
     this.noQuestions,
     this.trainingStatus,
     this.geoLocation,
+    this.swipeTimer,
+    this.testTimer,
   });
 
   D.fromJson(Map<String, dynamic> json) {
@@ -58,6 +62,8 @@ class D {
     noQuestions = json['NoQuestions'];
     trainingStatus = json['TrainingStatus'];
     geoLocation = json['GeoLocation'];
+    swipeTimer = _parseInt(json['SwipeTimer']);
+    testTimer = _parseInt(json['TestTimer']);
   }
 
   Map<String, dynamic> toJson() {
@@ -72,6 +78,13 @@ class D {
     data['NoQuestions'] = noQuestions;
     data['TrainingStatus'] = trainingStatus;
     data['GeoLocation'] = geoLocation;
+    data['SwipeTimer'] = swipeTimer;
+    data['TestTimer'] = testTimer;
     return data;
+  }
+
+  static int? _parseInt(dynamic value) {
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
   }
 }

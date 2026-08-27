@@ -51,8 +51,8 @@ void callDispatcher() {
 
 //Select environment here between DevEnv or ProdEnv
 void selectEnvironment() {
-  // environment = DevEnv();
-  environment = ProdEnv();
+  environment = DevEnv();
+  // environment = ProdEnv();
   print("Running : ${environment?.baseUrl}");
 }
 

@@ -38,6 +38,8 @@ class TrainingScreen extends StatefulWidget {
     required this.trainingId,
     required this.trainingType,
     required this.cutOff,
+    this.swipeTimer = 0,
+    this.testTimer = 0,
     this.trainingDetails,
     this.fromCompleted = false,
   });
@@ -49,6 +51,8 @@ class TrainingScreen extends StatefulWidget {
   final int trainingId;
   final String trainingType;
   final int cutOff;
+  final int swipeTimer;
+  final int testTimer;
   final bool fromCompleted;
   final traininD.D? trainingDetails;
 
@@ -72,9 +76,14 @@ class _TrainingScreenState extends State<TrainingScreen>
 
   void _startPageMoveTimer() {
     _pageMoveTimer?.cancel();
+    if (widget.swipeTimer <= 0) {
+      context.read<TabProvider>().startCountdown(0);
+      context.read<TabProvider>().setCanMovePage = true;
+      return;
+    }
     context.read<TabProvider>().setCanMovePage = false;
-    context.read<TabProvider>().startCountdown();
-    _pageMoveTimer = Timer(const Duration(seconds: 5), () {
+    context.read<TabProvider>().startCountdown(widget.swipeTimer);
+    _pageMoveTimer = Timer(Duration(seconds: widget.swipeTimer), () {
       if (mounted) {
         context.read<TabProvider>().setCanMovePage = true;
       }
@@ -91,12 +100,16 @@ class _TrainingScreenState extends State<TrainingScreen>
     _trainingContentFuture.then((value) {
       if (mounted && value != null) {
         final length = value.length;
-        if (length > 1) {
+        if (length > 0) {
           _startPageMoveTimer();
         }
 
-        // Set initial complete track percentage: page 1 of (length + 1)
-        context.read<UserProvider>().setContentCompleteTrackPerc(1, length + 1);
+        // Set initial complete track percentage only when content is available.
+        if (length > 0) {
+          context
+              .read<UserProvider>()
+              .setContentCompleteTrackPerc(1, length + 1);
+        }
 
         // Add photos to TabProvider if they are empty
         final tabProv = context.read<TabProvider>();
@@ -123,51 +136,54 @@ class _TrainingScreenState extends State<TrainingScreen>
               completedPercentageStr != "0") {
             final double? completedPercentage =
                 double.tryParse(completedPercentageStr);
-            // The total pages for progress calculation. Note that itemCount is length + 1
+            // Progress includes one terminal page (success/test), but resuming
+            // must always land on an actual content page. Otherwise a high or
+            // stale in-progress percentage can open the terminal page and mark
+            // the training as completed without the user finishing it.
             final int totalPage = length + 1;
-            if (completedPercentage != null) {
-              int desiredPageIndex =
+            if (completedPercentage != null && length > 0) {
+              final calculatedPageIndex =
                   ((completedPercentage / 100) * totalPage).round() - 1;
-              if (desiredPageIndex >= 0 && desiredPageIndex < totalPage) {
-                debugPrint(
-                    "Resume logic: desiredPage = $desiredPageIndex, total page = $totalPage, % completed = $completedPercentage");
+              final desiredPageIndex =
+                  calculatedPageIndex.clamp(0, length - 1).toInt();
+              debugPrint(
+                  "Resume logic: desiredPage = $desiredPageIndex, content pages = $length, total page = $totalPage, % completed = $completedPercentage");
 
-                // Show a dialog asking the user whether they want to resume from the last viewed page
-                showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Resume?'),
-                    content: const Text(
-                        'Do you want to resume from where you left off?'),
-                    actions: <Widget>[
-                      TextButton(
-                        child: const Text('No'),
-                        onPressed: () {
-                          Navigator.of(context).pop(false);
-                        },
-                      ),
-                      TextButton(
-                        child: const Text('Yes'),
-                        onPressed: () {
-                          Navigator.of(context).pop(true);
-                        },
-                      ),
-                    ],
-                  ),
-                ).then((resume) {
-                  if (resume == true && mounted) {
-                    Future.delayed(const Duration(milliseconds: 200), () {
-                      if (mounted) {
-                        controller.animateToPage(
-                          desiredPageIndex,
-                          duration: const Duration(milliseconds: 100),
-                          curve: Curves.easeInOut,
-                        );
-                      }
-                    });
-                  }
-                });
-              }
+              // Show a dialog asking the user whether they want to resume from the last viewed page
+              showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Resume?'),
+                  content: const Text(
+                      'Do you want to resume from where you left off?'),
+                  actions: <Widget>[
+                    TextButton(
+                      child: const Text('No'),
+                      onPressed: () {
+                        Navigator.of(context).pop(false);
+                      },
+                    ),
+                    TextButton(
+                      child: const Text('Yes'),
+                      onPressed: () {
+                        Navigator.of(context).pop(true);
+                      },
+                    ),
+                  ],
+                ),
+              ).then((resume) {
+                if (resume == true && mounted) {
+                  Future.delayed(const Duration(milliseconds: 200), () {
+                    if (mounted) {
+                      controller.animateToPage(
+                        desiredPageIndex,
+                        duration: const Duration(milliseconds: 100),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  });
+                }
+              });
             }
           }
         }
@@ -321,8 +337,7 @@ class _TrainingScreenState extends State<TrainingScreen>
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(false),
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 12),
@@ -349,8 +364,7 @@ class _TrainingScreenState extends State<TrainingScreen>
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(true),
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
                       child: Text(
                         'Yes, Exit',
                         style: GoogleFonts.plusJakartaSans(
@@ -397,6 +411,15 @@ class _TrainingScreenState extends State<TrainingScreen>
             );
           }
           final data = snapshot.data as List;
+          if (data.isEmpty) {
+            return const Scaffold(
+              body: Center(
+                child: NoTrainingWidget(
+                  message: "No content is available for this training.",
+                ),
+              ),
+            );
+          }
           final totalPages = data.length + 1;
 
           return SafeArea(
@@ -630,8 +653,8 @@ class _TrainingScreenState extends State<TrainingScreen>
               context.read<UserProvider>().setContentCompleteTrackPerc(
                   page + 1, snapshot.data.length + 1);
 
-              if (snapshot.data.length > 1) {
-                context.read<UserProvider>().setTrainingPageTrack = page;
+              context.read<UserProvider>().setTrainingPageTrack = page;
+              if (snapshot.data.isNotEmpty && page < snapshot.data.length) {
                 _startPageMoveTimer();
               }
             },
@@ -1005,6 +1028,7 @@ class _TrainingScreenState extends State<TrainingScreen>
                                 Provider.of<UserProvider>(context,
                                         listen: false)
                                     .resetUserSelect();
+                                context.read<TabProvider>().resetSelection();
                                 // calculateContentProgress();
 
                                 if (context.mounted) {
@@ -1017,6 +1041,7 @@ class _TrainingScreenState extends State<TrainingScreen>
                                     'trainingID': widget.trainingId,
                                     'containsTest': widget.trainingType,
                                     'cutOff': widget.cutOff,
+                                    'testTimer': widget.testTimer,
                                   });
                                 }
                               },
