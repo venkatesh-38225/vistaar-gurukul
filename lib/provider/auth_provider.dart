@@ -25,65 +25,84 @@ class AuthProvider extends ChangeNotifier {
 
   Future<Map<String, dynamic>> login(
       {required String userId, required String password}) async {
-    final loginData = {
-      "userId": userId.trim(),
-      "password": password,
-      "source": authSource,
-    };
+    final trimmedUserId = userId.trim();
     _loggedInStatus = Status.Authenticating;
     notifyListeners();
-    debugPrint("=== LOGIN API REQUEST ===");
-    debugPrint("URL: $loginUrl");
-    try {
-      final response = await _dio.post(
-        loginUrl,
-        data: loginData,
-        options: _authOptions,
-      );
-      debugPrint("Response Status: ${response.statusCode}");
-      debugPrint("Raw Response Body: ${response.data}");
-      debugPrint("=========================");
 
-      final body = _responseMap(response.data);
-      if (_is2xx(response.statusCode) && body['success'] == true) {
+    try {
+      var twoFactorEnabled = false;
+      var successMessage = 'Success';
+
+      if (isProduction) {
+        final loginData = {
+          "userId": trimmedUserId,
+          "password": password,
+          "source": authSource,
+        };
+        debugPrint("=== LOGIN API REQUEST ===");
+        debugPrint("URL: $loginUrl");
+        final response = await _dio.post(
+          loginUrl,
+          data: loginData,
+          options: _authOptions,
+        );
+        debugPrint("Response Status: ${response.statusCode}");
+        debugPrint("Raw Response Body: ${response.data}");
+        debugPrint("=========================");
+
+        final body = _responseMap(response.data);
+        if (!_is2xx(response.statusCode) || body['success'] != true) {
+          return _loginFailure(
+            body['message']?.toString() ?? 'Invalid Details',
+          );
+        }
         final data = body['data'] is Map
             ? Map<String, dynamic>.from(body['data'] as Map)
             : <String, dynamic>{};
-        final userData = Login(
-          d: D.fromAuthJson(data, fallbackUserId: userId.trim()),
-        );
-        _loggedInStatus = Status.LoggedIn;
-        notifyListeners();
-        return {
-          'status': true,
-          'message': body['message']?.toString() ?? 'Success',
-          'user': userData,
-          'twoFactorEnabled': data['twoFactorEnabled'] == true,
-        };
+        twoFactorEnabled = data['twoFactorEnabled'] == true;
+        successMessage = body['message']?.toString() ?? 'Success';
       }
 
-      _loggedInStatus = Status.NotLoggedIn;
+      final adResponse = await _dio.post(
+        checkADLoginUrl,
+        data: {"EmpId": trimmedUserId, "Password": password},
+      );
+      final adBody = _responseMap(adResponse.data);
+      final adData = adBody['d'] is Map
+          ? Map<String, dynamic>.from(adBody['d'] as Map)
+          : <String, dynamic>{};
+
+      if (!_is2xx(adResponse.statusCode) || adData['Status'] != 'Success') {
+        return _loginFailure(
+          adData['Status']?.toString() ?? 'Invalid Details',
+        );
+      }
+
+      final userData = Login(d: D.fromJson(adData));
+      _loggedInStatus = Status.LoggedIn;
       notifyListeners();
       return {
-        'status': false,
-        'message': body['message']?.toString() ?? 'Invalid Details',
+        'status': true,
+        'message': successMessage,
+        'user': userData,
+        'twoFactorEnabled': twoFactorEnabled,
       };
     } on DioException catch (e) {
       debugPrint("Login Exception: $e");
-      _loggedInStatus = Status.NotLoggedIn;
-      notifyListeners();
       final body = _responseMap(e.response?.data);
-      return {
-        'status': false,
-        'message': body['message']?.toString() ??
-            'Unable to login. Please try again.',
-      };
+      return _loginFailure(
+        body['message']?.toString() ?? 'Unable to login. Please try again.',
+      );
     } catch (e) {
       debugPrint("Login Exception: $e");
-      _loggedInStatus = Status.NotLoggedIn;
-      notifyListeners();
-      return {'status': false, 'message': 'Unable to login. Please try again.'};
+      return _loginFailure('Unable to login. Please try again.');
     }
+  }
+
+  Map<String, dynamic> _loginFailure(String message) {
+    _loggedInStatus = Status.NotLoggedIn;
+    notifyListeners();
+    return {'status': false, 'message': message};
   }
 
   Future<bool> sendOTP(String userId) async {

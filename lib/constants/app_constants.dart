@@ -7,10 +7,12 @@ const noticiationChannelName = 'gurukulName';
 //https://productivity.vistaarfinance.net.in:448/Gurukul_docs
 
 String get baseURL => environment!.baseUrl;
+bool get isProduction => environment!.isProduction;
 
 // AUTH URLs
 String get authBaseUrl => environment!.authBaseUrl;
 String get loginUrl => "$authBaseUrl/Login";
+String get checkADLoginUrl => "$baseURL/CheckADLogin";
 String get sendOtpUrl => "$authBaseUrl/otp/SendOtp";
 String get verifyOtpUrl => "$authBaseUrl/otp/verifyOTP";
 const String authApiKey = "ht9AfQrZmJnu0Gxl";

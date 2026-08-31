@@ -42,7 +42,11 @@ class TrainingTestScreen extends StatefulWidget {
 class _TrainingTestScreenState extends State<TrainingTestScreen> {
   final scrollController = ScrollController();
   final _scrollController = ScrollController();
+  final PageController _questionController =
+      PageController(viewportFraction: 1);
   bool _isSubmitting = false;
+  bool _isChangingQuestion = false;
+  bool _testSubmissionRecorded = false;
   late Future<dynamic> _trainingTestFuture;
   Timer? _testCountdownTimer;
   DateTime? _testDeadline;
@@ -126,6 +130,63 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
         : '$mm:$ss';
   }
 
+  bool get _allQuestionsAnswered {
+    if (_questions.isEmpty) return false;
+    final answeredQuestionIds = context.read<TabProvider>().qId.toSet();
+    return _questions.every((question) =>
+        question.id != null && answeredQuestionIds.contains(question.id));
+  }
+
+  void _pauseCountdownForManualSubmission() {
+    _testCountdownTimer?.cancel();
+    setState(() {
+      _isSubmitting = true;
+      if (widget.testTimer > 0) {
+        _timerExpired = true;
+      }
+    });
+  }
+
+  void _resumeCountdownAfterFailedManualSubmission() {
+    final deadline = _testDeadline;
+    if (widget.testTimer <= 0 || deadline == null) {
+      setState(() => _isSubmitting = false);
+      return;
+    }
+
+    final milliseconds = deadline.difference(DateTime.now()).inMilliseconds;
+    if (milliseconds <= 0) {
+      setState(() {
+        _remainingSeconds = 0;
+        _timerExpired = true;
+        _isSubmitting = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _remainingSeconds = (milliseconds / 1000).ceil();
+      _timerExpired = false;
+      _isSubmitting = false;
+    });
+    _testCountdownTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _updateCountdown());
+  }
+
+  Future<void> _goToQuestion(int page) async {
+    if (_isChangingQuestion || !_questionController.hasClients) return;
+    _isChangingQuestion = true;
+    try {
+      await _questionController.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOutCubic,
+      );
+    } finally {
+      _isChangingQuestion = false;
+    }
+  }
+
   Future<void> _autoSubmitTest() async {
     if (_isSubmitting || _questions.isEmpty) return;
     setState(() => _isSubmitting = true);
@@ -198,6 +259,10 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     }
 
     try {
+      if (_testSubmissionRecorded && widget.trainingType == "C+T") {
+        return _completeCombinedTrainingProgress(userProvider);
+      }
+
       final transcriptId = await userProvider.updateTestTranscript(
         trainingId: widget.trainingId.toString(),
         testName: widget.screenTitle,
@@ -223,17 +288,37 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
 
       debugPrint(
           "options Selected ${tabProvider.opSelected} questions Selected ${tabProvider.qId}");
-      return detailsResponse > 0;
+      if (detailsResponse <= 0) {
+        return false;
+      }
+
+      _testSubmissionRecorded = true;
+      if (widget.trainingType == "C+T") {
+        return _completeCombinedTrainingProgress(userProvider);
+      }
+      return true;
     } catch (e) {
       debugPrint("Error submitting completed training test: $e");
       return false;
     }
   }
 
+  Future<bool> _completeCombinedTrainingProgress(
+      UserProvider userProvider) async {
+    final response = await userProvider.updateTranscript(
+      trainingId: widget.trainingId,
+      contentName: widget.screenTitle,
+      completedPerc: "100",
+      contentStatus: "Completed",
+      bothStatus: "Completed",
+    );
+    return response > 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     Size size = MediaQuery.of(context).size;
-    final controller = PageController(viewportFraction: 1);
+    final controller = _questionController;
 
     return WillPopScope(
       onWillPop: () async {
@@ -472,10 +557,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                     horizontal: 16, vertical: 12),
                               ),
                               onPressed: () {
-                                controller.animateToPage(
-                                    controller.page!.toInt() - 1,
-                                    duration: const Duration(milliseconds: 100),
-                                    curve: Curves.linear);
+                                _goToQuestion(index - 1);
                               },
                               icon: Icon(Icons.arrow_back_rounded,
                                   color: ColorConstraints.testControlsColor(
@@ -487,11 +569,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                           context),
                                       fontWeight: FontWeight.bold)),
                             ),
-                      (context
-                                  .read<TabProvider>()
-                                  .qId
-                                  .contains(trainingTest.id) ||
-                              trainingTest.opt1Text!.isEmpty)
+                      (index + 1 < snapshot.data.length &&
+                              (context
+                                      .read<TabProvider>()
+                                      .qId
+                                      .contains(trainingTest.id) ||
+                                  trainingTest.opt1Text!.isEmpty))
                           ? ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor:
@@ -503,10 +586,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                 elevation: 2,
                               ),
                               onPressed: () {
-                                controller.animateToPage(
-                                    controller.page!.toInt() + 1,
-                                    duration: const Duration(milliseconds: 100),
-                                    curve: Curves.linear);
+                                _goToQuestion(index + 1);
                               },
                               icon: const Icon(Icons.arrow_forward_rounded,
                                   color: Colors.white, size: 18),
@@ -540,19 +620,26 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                           ),
                           child: ElevatedButton(
                               onPressed: () async {
-                                if (_isTimedTestActive) {
+                                if (_isSubmitting) {
+                                  return;
+                                }
+                                if (_isTimedTestActive &&
+                                    !_allQuestionsAnswered) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text(
-                                          "The test will be submitted automatically when the timer ends."),
+                                          "Please answer all questions before submitting. Unanswered questions will be submitted automatically when the timer ends."),
                                     ),
                                   );
                                   return;
                                 }
-                                if (_isSubmitting) {
+                                if (widget.testTimer > 0 &&
+                                    _timerExpired &&
+                                    !_allQuestionsAnswered) {
+                                  await _autoSubmitTest();
                                   return;
                                 }
-                                _isSubmitting = true;
+                                _pauseCountdownForManualSubmission();
 
                                 int percentage = (Provider.of<UserProvider>(
                                         context,
@@ -577,9 +664,9 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                 if (!context.mounted) {
                                   return;
                                 }
-                                _isSubmitting = false;
 
                                 if (!submissionSuccessful) {
+                                  _resumeCountdownAfterFailedManualSubmission();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text(
@@ -588,6 +675,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                   );
                                   return;
                                 }
+
+                                setState(() => _isSubmitting = false);
 
                                 if (testDecision == TestDecision.Fail) {
                                   showDialog(
@@ -899,6 +988,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
   @override
   void dispose() {
     _testCountdownTimer?.cancel();
+    _questionController.dispose();
     scrollController.dispose();
     _scrollController.dispose();
     super.dispose();

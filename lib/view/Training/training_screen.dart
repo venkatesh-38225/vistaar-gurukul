@@ -72,11 +72,54 @@ class _TrainingScreenState extends State<TrainingScreen>
   final int _latestPdfPage = 0;
   final controller = PageController(viewportFraction: 1);
   final List<Timer> _timers = [];
+  final Map<String, Future<String>> _pdfLoadFutures = {};
+  final Map<String, PDFViewController> _pdfControllers = {};
+  final Map<String, Set<int>> _completedPdfTimerPages = {};
   Timer? _pageMoveTimer;
+  String? _activeTimedPdfName;
+  int? _activeTimedPdfPage;
+  Future<int>? _contentCompletionUpdate;
+  bool _beginTestPageJumpScheduled = false;
 
-  void _startPageMoveTimer() {
+  bool get _shouldOpenBeginTestPage {
+    final details = widget.trainingDetails;
+    final completedPercentage =
+        double.tryParse(details?.completedPercentage?.trim() ?? '');
+    final trainingStatus = details?.trainingStatus?.trim().toLowerCase();
+
+    return widget.trainingType.trim().toUpperCase() == "C+T" &&
+        completedPercentage != null &&
+        completedPercentage >= 50 &&
+        completedPercentage < 100 &&
+        trainingStatus == "inprogress";
+  }
+
+  void _startPageMoveTimer({String? pdfName, int? pdfPage}) {
+    final isPdfPage = pdfName != null && pdfPage != null;
+    final completedPdfPages =
+        isPdfPage ? _completedPdfTimerPages[pdfName] : null;
+    if (isPdfPage && completedPdfPages?.contains(pdfPage) == true) {
+      _pageMoveTimer?.cancel();
+      context.read<TabProvider>().startCountdown(0);
+      context.read<TabProvider>().setCanMovePage = true;
+      return;
+    }
+    if (isPdfPage &&
+        _activeTimedPdfName == pdfName &&
+        _activeTimedPdfPage == pdfPage &&
+        (_pageMoveTimer?.isActive ?? false)) {
+      return;
+    }
+
     _pageMoveTimer?.cancel();
+    _activeTimedPdfName = pdfName;
+    _activeTimedPdfPage = pdfPage;
     if (widget.swipeTimer <= 0) {
+      if (isPdfPage) {
+        _completedPdfTimerPages
+            .putIfAbsent(pdfName, () => <int>{})
+            .add(pdfPage);
+      }
       context.read<TabProvider>().startCountdown(0);
       context.read<TabProvider>().setCanMovePage = true;
       return;
@@ -85,9 +128,55 @@ class _TrainingScreenState extends State<TrainingScreen>
     context.read<TabProvider>().startCountdown(widget.swipeTimer);
     _pageMoveTimer = Timer(Duration(seconds: widget.swipeTimer), () {
       if (mounted) {
+        if (isPdfPage) {
+          _completedPdfTimerPages
+              .putIfAbsent(pdfName, () => <int>{})
+              .add(pdfPage);
+        }
         context.read<TabProvider>().setCanMovePage = true;
       }
     });
+  }
+
+  Future<void> _showResumeDialog(int desiredPageIndex) async {
+    if (!mounted) return;
+    final resume = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Resume?'),
+        content: const Text('Do you want to resume from where you left off?'),
+        actions: <Widget>[
+          TextButton(
+            child: const Text('No'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+          ),
+          TextButton(
+            child: const Text('Yes'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+
+    final targetPage = resume == true ? desiredPageIndex : 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !controller.hasClients) return;
+      controller.jumpToPage(targetPage);
+      context.read<UserProvider>().setTrainingPageTrack = targetPage;
+      _startPageMoveTimer();
+    });
+  }
+
+  Future<String> _pdfFutureFor(D trainingContent) {
+    final fileName = trainingContent.pDFName!;
+    return _pdfLoadFutures.putIfAbsent(
+      fileName,
+      () => loadPdf(
+        "$trainingContentAssetsUrl/$fileName",
+        fileName,
+      ),
+    );
   }
 
   @override
@@ -100,9 +189,7 @@ class _TrainingScreenState extends State<TrainingScreen>
     _trainingContentFuture.then((value) {
       if (mounted && value != null) {
         final length = value.length;
-        if (length > 0) {
-          _startPageMoveTimer();
-        }
+        bool resumeDialogScheduled = false;
 
         // Set initial complete track percentage only when content is available.
         if (length > 0) {
@@ -127,9 +214,10 @@ class _TrainingScreenState extends State<TrainingScreen>
           }
         }
 
-        // Resume from last viewed page logic
+        // Resume from last viewed page logic. A C+T training whose content is
+        // already complete opens on its test-introduction page instead.
         final details = widget.trainingDetails;
-        if (details != null) {
+        if (details != null && !_shouldOpenBeginTestPage) {
           final completedPercentageStr = details.completedPercentage;
           if (completedPercentageStr != null &&
               completedPercentageStr.isNotEmpty &&
@@ -142,50 +230,32 @@ class _TrainingScreenState extends State<TrainingScreen>
             // the training as completed without the user finishing it.
             final int totalPage = length + 1;
             if (completedPercentage != null && length > 0) {
+              final contentPercentage = widget.trainingType == "C+T"
+                  ? (completedPercentage * 2).clamp(0, 100).toDouble()
+                  : completedPercentage;
               final calculatedPageIndex =
-                  ((completedPercentage / 100) * totalPage).round() - 1;
+                  ((contentPercentage / 100) * totalPage).round() - 1;
               final desiredPageIndex =
                   calculatedPageIndex.clamp(0, length - 1).toInt();
               debugPrint(
                   "Resume logic: desiredPage = $desiredPageIndex, content pages = $length, total page = $totalPage, % completed = $completedPercentage");
 
-              // Show a dialog asking the user whether they want to resume from the last viewed page
-              showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Resume?'),
-                  content: const Text(
-                      'Do you want to resume from where you left off?'),
-                  actions: <Widget>[
-                    TextButton(
-                      child: const Text('No'),
-                      onPressed: () {
-                        Navigator.of(context).pop(false);
-                      },
-                    ),
-                    TextButton(
-                      child: const Text('Yes'),
-                      onPressed: () {
-                        Navigator.of(context).pop(true);
-                      },
-                    ),
-                  ],
-                ),
-              ).then((resume) {
-                if (resume == true && mounted) {
-                  Future.delayed(const Duration(milliseconds: 200), () {
-                    if (mounted) {
-                      controller.animateToPage(
-                        desiredPageIndex,
-                        duration: const Duration(milliseconds: 100),
-                        curve: Curves.easeInOut,
-                      );
-                    }
-                  });
-                }
-              });
+              // Page zero is already the initial page, so asking to resume
+              // there makes Yes and No appear to do the same thing.
+              if (desiredPageIndex > 0) {
+                resumeDialogScheduled = true;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _showResumeDialog(desiredPageIndex);
+                });
+              }
             }
           }
+        }
+
+        if (length > 0 && !resumeDialogScheduled && !_shouldOpenBeginTestPage) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _startPageMoveTimer();
+          });
         }
       }
     });
@@ -203,21 +273,14 @@ class _TrainingScreenState extends State<TrainingScreen>
       DeviceOrientation.portraitUp,
     ]);
 
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (mounted) {
-        Provider.of<UserProvider>(context, listen: false)
-            .setPageTrack(_pageTrack, 0);
-        context.read<UserProvider>()
-          ..setIsScrollable = true
-          ..setLatestPdfPage = 0
-          ..setCompletedPdfPages = 0
-          ..setIsScrollable = true
-          ..setPdfLoaded = false
-          ..setTrainingPageTrack = 0;
-
-        context.read<UserProvider>().setCompletedPdfPages = 0;
-      }
-    });
+    Provider.of<UserProvider>(context, listen: false)
+        .setPageTrack(_pageTrack, 0);
+    context.read<UserProvider>()
+      ..setIsScrollable = true
+      ..setLatestPdfPage = 0
+      ..setCompletedPdfPages = 0
+      ..setPdfLoaded = false
+      ..setTrainingPageTrack = 0;
     _animationController = AnimationController(
       duration: const Duration(seconds: 1),
       vsync: this,
@@ -230,26 +293,29 @@ class _TrainingScreenState extends State<TrainingScreen>
     });
   }
 
-  void calculateContentProgress() {
+  Future<int> calculateContentProgress() async {
     debugPrint(
         "totalPage = ${_userProvider!.contentCompleteTrackPerc['totalPage']}");
     int? onPage = _userProvider!.contentCompleteTrackPerc['onPage'];
     int? totalPage = _userProvider!.contentCompleteTrackPerc['totalPage'];
-    if (onPage != null && totalPage != null) {
-      double percentage = (onPage / totalPage) * 100;
+    if (onPage != null && totalPage != null && totalPage > 0) {
+      final contentPercentage = (onPage / totalPage) * 100;
+      final percentage = widget.trainingType == "C+T"
+          ? contentPercentage / 2
+          : contentPercentage;
       debugPrint(
           "onpage = $onPage, total = $totalPage, perc = ${percentage.toStringAsFixed(2)}");
-      if (percentage >= 100) {
+      if (contentPercentage >= 100) {
         if (widget.trainingType == "C+T") {
-          debugPrint("Completed");
-          _userProvider!.updateTranscript(
+          debugPrint("Content completed; combined training is 50% complete");
+          return _userProvider!.updateTranscript(
               trainingId: widget.trainingId,
               contentName: widget.screenTitle,
-              completedPerc: "100",
+              completedPerc: "50",
               contentStatus: "Completed",
               bothStatus: "");
         } else {
-          _userProvider!.updateTranscript(
+          return _userProvider!.updateTranscript(
               trainingId: widget.trainingId,
               contentName: widget.screenTitle,
               completedPerc: "100",
@@ -258,7 +324,7 @@ class _TrainingScreenState extends State<TrainingScreen>
         }
       } else {
         debugPrint("Initiated");
-        _userProvider!.updateTranscript(
+        return _userProvider!.updateTranscript(
             trainingId: widget.trainingId,
             contentName: widget.screenTitle,
             completedPerc: percentage.toStringAsFixed(2),
@@ -266,6 +332,7 @@ class _TrainingScreenState extends State<TrainingScreen>
             bothStatus: "");
       }
     }
+    return 0;
   }
 
   Stream<int> counter() {
@@ -422,6 +489,25 @@ class _TrainingScreenState extends State<TrainingScreen>
           }
           final totalPages = data.length + 1;
 
+          if (_shouldOpenBeginTestPage && !_beginTestPageJumpScheduled) {
+            _beginTestPageJumpScheduled = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || !controller.hasClients) {
+                _beginTestPageJumpScheduled = false;
+                return;
+              }
+
+              final beginTestPage = data.length;
+              context.read<UserProvider>()
+                ..setContentCompleteTrackPerc(beginTestPage + 1, totalPages)
+                ..setTrainingPageTrack = beginTestPage;
+              context.read<TabProvider>()
+                ..startCountdown(0)
+                ..setCanMovePage = true;
+              controller.jumpToPage(beginTestPage);
+            });
+          }
+
           return SafeArea(
             child: Scaffold(
               appBar: PreferredSize(
@@ -478,6 +564,9 @@ class _TrainingScreenState extends State<TrainingScreen>
                           // Hide on the last page (Test/Success Screen)
                           return const SizedBox.shrink();
                         }
+                        final bool isPdfContentPage = trainingPageTrack >= 0 &&
+                            trainingPageTrack < data.length &&
+                            (data[trainingPageTrack] as D).pDFName!.isNotEmpty;
                         return Container(
                           padding: const EdgeInsets.only(
                             left: 20,
@@ -532,85 +621,71 @@ class _TrainingScreenState extends State<TrainingScreen>
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 16),
+                              if (!isPdfContentPage) const SizedBox(width: 16),
                               // Next / Progress Button
-                              Expanded(
-                                child: Consumer2<TabProvider, UserProvider>(
-                                  builder:
-                                      (context, tabProvider, userProvider, _) {
-                                    final isReady =
-                                        tabProvider.countdownValue == 0;
-                                    final canMovePage = tabProvider.canMovePage;
-                                    final pageTrack = userProvider.getPageTrack;
+                              if (!isPdfContentPage)
+                                Expanded(
+                                  child: Consumer<TabProvider>(
+                                    builder: (context, tabProvider, _) {
+                                      final isReady =
+                                          tabProvider.countdownValue == 0;
+                                      final canMovePage =
+                                          tabProvider.canMovePage;
+                                      final bool isCountdownPending =
+                                          !isReady && !canMovePage;
 
-                                    final bool isPdfPending = pageTrack != -1;
-                                    final bool isCountdownPending =
-                                        !isReady && !canMovePage;
+                                      VoidCallback? onPressed;
+                                      String btnText = "Next";
+                                      IconData iconData =
+                                          Icons.arrow_forward_ios_rounded;
+                                      Color btnColor =
+                                          Theme.of(context).primaryColor;
 
-                                    VoidCallback? onPressed;
-                                    String btnText = "Next";
-                                    IconData iconData =
-                                        Icons.arrow_forward_ios_rounded;
-                                    Color btnColor =
-                                        Theme.of(context).primaryColor;
+                                      if (isCountdownPending) {
+                                        btnText =
+                                            "Next (${tabProvider.countdownValue}s)";
+                                        iconData =
+                                            Icons.hourglass_empty_rounded;
+                                        btnColor = Colors.grey[500]!;
+                                        onPressed = null;
+                                      } else {
+                                        onPressed = () {
+                                          controller.animateToPage(
+                                            trainingPageTrack + 1,
+                                            duration: const Duration(
+                                                milliseconds: 400),
+                                            curve: Curves.easeInOut,
+                                          );
+                                        };
+                                      }
 
-                                    if (isPdfPending) {
-                                      btnText = "Read PDF";
-                                      iconData = Icons.menu_book_rounded;
-                                      btnColor = Colors.orange;
-                                      onPressed = () {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                                "Wait a minute! The PDF is packed with knowledge. Don't miss out!"),
+                                      return ElevatedButton.icon(
+                                        onPressed: onPressed,
+                                        icon: Icon(iconData,
+                                            size: 16, color: Colors.white),
+                                        label: Text(
+                                          btnText,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
                                           ),
-                                        );
-                                      };
-                                    } else if (isCountdownPending) {
-                                      btnText =
-                                          "Next (${tabProvider.countdownValue}s)";
-                                      iconData = Icons.hourglass_empty_rounded;
-                                      btnColor = Colors.grey[500]!;
-                                      onPressed = null;
-                                    } else {
-                                      onPressed = () {
-                                        controller.animateToPage(
-                                          trainingPageTrack + 1,
-                                          duration:
-                                              const Duration(milliseconds: 400),
-                                          curve: Curves.easeInOut,
-                                        );
-                                      };
-                                    }
-
-                                    return ElevatedButton.icon(
-                                      onPressed: onPressed,
-                                      icon: Icon(iconData,
-                                          size: 16, color: Colors.white),
-                                      label: Text(
-                                        btnText,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
                                         ),
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: btnColor,
-                                        disabledBackgroundColor:
-                                            Colors.grey[300],
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 14),
-                                        elevation: onPressed != null ? 3 : 0,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: btnColor,
+                                          disabledBackgroundColor:
+                                              Colors.grey[300],
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 14),
+                                          elevation: onPressed != null ? 3 : 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  },
+                                      );
+                                    },
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         );
@@ -641,428 +716,523 @@ class _TrainingScreenState extends State<TrainingScreen>
           ScrollPhysics physics = isScrollable
               ? const PageScrollPhysics()
               : const NeverScrollableScrollPhysics();
-          // builder: (context, state) {
-          return PageView.builder(
-            controller: controller,
-            physics: context.watch<TabProvider>().canMovePage
-                ? physics
-                : const NeverScrollableScrollPhysics(),
-            itemCount: snapshot.data.length + 1,
-            onPageChanged: (page) {
-              debugPrint("data length = ${snapshot.data.length}");
-              context.read<UserProvider>().setContentCompleteTrackPerc(
-                  page + 1, snapshot.data.length + 1);
+          return Selector<TabProvider, bool>(
+            selector: (_, provider) => provider.canMovePage,
+            builder: (_, canMovePage, __) => PageView.builder(
+              controller: controller,
+              physics: _shouldOpenBeginTestPage
+                  ? const NeverScrollableScrollPhysics()
+                  : canMovePage
+                      ? physics
+                      : const NeverScrollableScrollPhysics(),
+              itemCount: snapshot.data.length + 1,
+              onPageChanged: (page) {
+                debugPrint("data length = ${snapshot.data.length}");
+                context.read<UserProvider>().setContentCompleteTrackPerc(
+                    page + 1, snapshot.data.length + 1);
 
-              context.read<UserProvider>().setTrainingPageTrack = page;
-              if (snapshot.data.isNotEmpty && page < snapshot.data.length) {
-                _startPageMoveTimer();
-              }
-            },
-            itemBuilder: (_, index) {
-              if (index < snapshot.data.length) {
-                D trainingContent = snapshot.data![index];
+                if (widget.trainingType == "C+T" &&
+                    !widget.fromCompleted &&
+                    !_shouldOpenBeginTestPage &&
+                    page == snapshot.data.length) {
+                  _contentCompletionUpdate ??= calculateContentProgress();
+                }
 
-                return trainingContent.pDFName!.isEmpty
-                    ? SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            contentAttach(
-                                docName: trainingContent, index: index),
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(
-                                trainingContent.content!,
-                                style: GoogleFonts.inter(
-                                  fontSize: 20,
+                context.read<UserProvider>().setTrainingPageTrack = page;
+                if (snapshot.data.isNotEmpty && page < snapshot.data.length) {
+                  final D currentContent = snapshot.data[page];
+                  final isPdfContent = currentContent.pDFName!.isNotEmpty;
+                  _pageTrack
+                    ..clear()
+                    ..add(isPdfContent ? 0 : -1);
+                  context.read<UserProvider>()
+                    ..setLatestPdfPage = 0
+                    ..setTotalPdfPage = 0
+                    ..setPageTrack(_pageTrack, 0);
+                  _startPageMoveTimer();
+                }
+              },
+              itemBuilder: (_, index) {
+                if (index < snapshot.data.length) {
+                  D trainingContent = snapshot.data![index];
+
+                  return trainingContent.pDFName!.isEmpty
+                      ? SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              contentAttach(
+                                  docName: trainingContent, index: index),
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  trainingContent.content!,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 20,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 20),
-                          ],
-                        ),
-                      )
-                    : FutureBuilder(
-                        future: loadPdf(
-                            "$trainingContentAssetsUrl/${trainingContent.pDFName}",
-                            "${trainingContent.pDFName}"),
-                        builder: (ctx, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                              child: LottieLoadingWidget(
-                                size: 120,
-                                message: "Loading PDF...",
-                              ),
-                            );
-                          } else if (snapshot.hasError) {
-                            return Text("Error: ${snapshot.error}");
-                          } else {
-                            String previousPageString =
-                                "${controller.page!.round()}.5";
-                            double previousPage =
-                                double.parse(previousPageString);
+                              const SizedBox(height: 20),
+                            ],
+                          ),
+                        )
+                      : FutureBuilder<String>(
+                          future: _pdfFutureFor(trainingContent),
+                          builder: (ctx, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: LottieLoadingWidget(
+                                  size: 120,
+                                  message: "Loading PDF...",
+                                ),
+                              );
+                            } else if (snapshot.hasError) {
+                              return Text("Error: ${snapshot.error}");
+                            } else {
+                              String previousPageString =
+                                  "${controller.page!.round()}.5";
+                              double previousPage =
+                                  double.parse(previousPageString);
 
-                            return
-                                // kIsWeb
-                                //     ? Scaffold(
-                                //         body: ListView(
-                                //           shrinkWrap: true,
-                                //           scrollDirection: Axis.vertical,
-                                //           children: [
-                                //             WebPdfScreen(
-                                //               width: size.width / 1.2,
-                                //               height: size.height / 1.4,
-                                //               pdfUrl:
-                                //                   "$trainingContentAssetsUrl/${trainingContent.pDFName}",
-                                //             ),
-                                //             ElevatedButton(
-                                //               style: ElevatedButton.styleFrom(
-                                //                   backgroundColor: Colors.green),
-                                //               onPressed: () {
-                                //                 context
-                                //                     .read<UserProvider>()
-                                //                     .setIsScrollable = true;
-                                //                 controller.animateToPage(
-                                //                   controller.page!.toInt() + 1,
-                                //                   duration: const Duration(
-                                //                       milliseconds: 500),
-                                //                   curve: Curves.easeInOut,
-                                //                 );
-                                //               },
-                                //               child: const Text("Finish",
-                                //                   style: TextStyle(
-                                //                       color: Colors.white,
-                                //                       fontWeight: FontWeight.w600)),
-                                //             )
-                                //           ],
-                                //         ),
-                                //       )
-                                //     :
-                                Scaffold(
-                              // backgroundColor: Colors.blue.shade100,
-                              body: Column(
-                                children: [
-                                  Expanded(
-                                    child: Stack(
-                                      children: [
-                                        Center(
-                                          child: PDFView(
-                                            defaultPage: context
-                                                        .read<UserProvider>()
-                                                        .completedPdfPage >
-                                                    0
-                                                ? context
-                                                    .read<UserProvider>()
-                                                    .completedPdfPage
-                                                : context
-                                                    .read<UserProvider>()
-                                                    .latestPdfPage,
-                                            onPageError: (page, error) =>
-                                                const CircularProgressIndicator(),
-                                            pageSnap: true,
-                                            //ADD THIS TO ENABLE NIGHT MODE IN PDF AS WELL
-                                            // nightMode: context
-                                            //     .read<TabProvider>()
-                                            //     .isNightMode,
-                                            fitPolicy: MediaQuery.of(context)
-                                                        .orientation ==
-                                                    Orientation.portrait
-                                                ? FitPolicy.WIDTH
-                                                : FitPolicy.BOTH,
-                                            fitEachPage: true,
-                                            filePath: snapshot.data!,
-                                            enableSwipe: true,
-                                            swipeHorizontal: true,
+                              return
+                                  // kIsWeb
+                                  //     ? Scaffold(
+                                  //         body: ListView(
+                                  //           shrinkWrap: true,
+                                  //           scrollDirection: Axis.vertical,
+                                  //           children: [
+                                  //             WebPdfScreen(
+                                  //               width: size.width / 1.2,
+                                  //               height: size.height / 1.4,
+                                  //               pdfUrl:
+                                  //                   "$trainingContentAssetsUrl/${trainingContent.pDFName}",
+                                  //             ),
+                                  //             ElevatedButton(
+                                  //               style: ElevatedButton.styleFrom(
+                                  //                   backgroundColor: Colors.green),
+                                  //               onPressed: () {
+                                  //                 context
+                                  //                     .read<UserProvider>()
+                                  //                     .setIsScrollable = true;
+                                  //                 controller.animateToPage(
+                                  //                   controller.page!.toInt() + 1,
+                                  //                   duration: const Duration(
+                                  //                       milliseconds: 500),
+                                  //                   curve: Curves.easeInOut,
+                                  //                 );
+                                  //               },
+                                  //               child: const Text("Finish",
+                                  //                   style: TextStyle(
+                                  //                       color: Colors.white,
+                                  //                       fontWeight: FontWeight.w600)),
+                                  //             )
+                                  //           ],
+                                  //         ),
+                                  //       )
+                                  //     :
+                                  Scaffold(
+                                // backgroundColor: Colors.blue.shade100,
+                                body: Column(
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        children: [
+                                          Center(
+                                            child: PDFView(
+                                              defaultPage: context
+                                                          .read<UserProvider>()
+                                                          .completedPdfPage >
+                                                      0
+                                                  ? context
+                                                      .read<UserProvider>()
+                                                      .completedPdfPage
+                                                  : context
+                                                      .read<UserProvider>()
+                                                      .latestPdfPage,
+                                              onPageError: (page, error) =>
+                                                  const CircularProgressIndicator(),
+                                              pageSnap: true,
+                                              //ADD THIS TO ENABLE NIGHT MODE IN PDF AS WELL
+                                              // nightMode: context
+                                              //     .read<TabProvider>()
+                                              //     .isNightMode,
+                                              fitPolicy: MediaQuery.of(context)
+                                                          .orientation ==
+                                                      Orientation.portrait
+                                                  ? FitPolicy.WIDTH
+                                                  : FitPolicy.BOTH,
+                                              fitEachPage: true,
+                                              filePath: snapshot.data!,
+                                              enableSwipe: false,
+                                              swipeHorizontal: true,
 
-                                            // onRender: (page) {
-                                            //   debugPrint("page on Render called");
-                                            // },
-                                            onRender: (pages) {
-                                              debugPrint("pdf onRender");
-                                              // if (pages! > 1) {
-                                              //   if (controller.page! >
-                                              //       previousPage) {
-                                              //     debugPrint(
-                                              //         "page completely swiped");
+                                              // onRender: (page) {
+                                              //   debugPrint("page on Render called");
+                                              // },
+                                              onRender: (pages) {
+                                                debugPrint("pdf onRender");
+                                                // if (pages! > 1) {
+                                                //   if (controller.page! >
+                                                //       previousPage) {
+                                                //     debugPrint(
+                                                //         "page completely swiped");
 
-                                              // if (!context
-                                              //     .read<UserProvider>()
-                                              //     .pdfLoaded) {
-                                              // setState(() {
-                                              context.read<UserProvider>()
-                                                ..setIsScrollable = false
-                                                ..setPdfLoaded = true;
+                                                // if (!context
+                                                //     .read<UserProvider>()
+                                                //     .pdfLoaded) {
+                                                // setState(() {
+                                                context.read<UserProvider>()
+                                                  ..setIsScrollable = false
+                                                  ..setPdfLoaded = true;
 
-                                              // _pdfLoaded = true;
-                                              // });
-                                              // }
-                                              //   } else {
-                                              //     debugPrint(
-                                              //         "page incomplete swipe");
-                                              //   }
-                                              // }
-                                            },
-                                            onViewCreated: (pdfController) {
-                                              debugPrint("pdf onViewCreated");
-                                            },
-                                            onPageChanged: (page, total) {
-                                              debugPrint("pdf onPageChanged");
-                                              if (page != 0) {
+                                                // _pdfLoaded = true;
+                                                // });
+                                                // }
+                                                //   } else {
+                                                //     debugPrint(
+                                                //         "page incomplete swipe");
+                                                //   }
+                                                // }
+                                              },
+                                              onViewCreated: (pdfController) {
+                                                debugPrint("pdf onViewCreated");
+                                                _pdfControllers[trainingContent
+                                                    .pDFName!] = pdfController;
+                                              },
+                                              onPageChanged: (page, total) {
+                                                debugPrint("pdf onPageChanged");
                                                 context.read<UserProvider>()
                                                   ..setLatestPdfPage = page!
                                                   ..setTotalPdfPage = total!;
-                                              }
 
-                                              if (page == 2 &&
-                                                  Provider.of<UserProvider>(
-                                                              context,
-                                                              listen: false)
-                                                          .getPageTrack ==
-                                                      1) {}
-                                              _pageTrack.add(page!);
+                                                if (page == 2 &&
+                                                    Provider.of<UserProvider>(
+                                                                context,
+                                                                listen: false)
+                                                            .getPageTrack ==
+                                                        1) {}
+                                                _pageTrack.add(page);
 
-                                              Provider.of<UserProvider>(context,
-                                                      listen: false)
-                                                  .setPageTrack(
-                                                      _pageTrack, total!);
-                                            },
-                                          ),
-                                        ),
-                                        Positioned(
-                                          bottom: 10,
-                                          right: 5,
-                                          child: Selector<UserProvider, bool>(
-                                            selector: (_, provider) =>
-                                                provider.latestPdfPage ==
-                                                provider.totalPage - 1,
-                                            builder: (_, isLastPage, __) =>
-                                                ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: isLastPage
-                                                    ? Colors.green
-                                                    : Colors.grey,
-                                              ),
-                                              onPressed: isLastPage
-                                                  ? () {
-                                                      context
-                                                          .read<UserProvider>()
-                                                          .setIsScrollable = true;
-                                                      controller.animateToPage(
-                                                        controller.page!
-                                                                .toInt() +
-                                                            1,
-                                                        duration:
-                                                            const Duration(
-                                                                milliseconds:
-                                                                    500),
-                                                        curve: Curves.easeInOut,
-                                                      );
-                                                    }
-                                                  : null,
-                                              child: Text("Finish",
-                                                  style: isLastPage
-                                                      ? const TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight:
-                                                              FontWeight.w600)
-                                                      : TextStyle(
-                                                          color:
-                                                              Colors.grey[700],
-                                                          fontWeight:
-                                                              FontWeight.w100)),
+                                                Provider.of<UserProvider>(
+                                                        context,
+                                                        listen: false)
+                                                    .setPageTrack(
+                                                        _pageTrack, total);
+                                                _startPageMoveTimer(
+                                                  pdfName:
+                                                      trainingContent.pDFName!,
+                                                  pdfPage: page,
+                                                );
+                                              },
                                             ),
                                           ),
-                                        )
-                                      ],
+                                          Positioned(
+                                            bottom: 10,
+                                            left: 5,
+                                            right: 5,
+                                            child: Consumer2<UserProvider,
+                                                TabProvider>(
+                                              builder: (_, userProvider,
+                                                  tabProvider, __) {
+                                                final currentPage =
+                                                    userProvider.latestPdfPage;
+                                                final totalPdfPages =
+                                                    userProvider.totalPage;
+                                                final isFirstPage =
+                                                    currentPage == 0;
+                                                final isLastPage =
+                                                    totalPdfPages > 0 &&
+                                                        currentPage ==
+                                                            totalPdfPages - 1;
+                                                final isCountdownPending =
+                                                    tabProvider.countdownValue >
+                                                            0 &&
+                                                        !tabProvider
+                                                            .canMovePage;
+                                                final pdfController =
+                                                    _pdfControllers[
+                                                        trainingContent
+                                                            .pDFName!];
+                                                final canGoNext =
+                                                    pdfController != null &&
+                                                        totalPdfPages > 0 &&
+                                                        !isCountdownPending;
+                                                final nextLabel = isCountdownPending
+                                                    ? "${isLastPage ? 'Finish' : 'Next'} (${tabProvider.countdownValue}s)"
+                                                    : isLastPage
+                                                        ? "Finish"
+                                                        : "Next";
+
+                                                return Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    ElevatedButton.icon(
+                                                      onPressed: !isFirstPage &&
+                                                              pdfController !=
+                                                                  null
+                                                          ? () => pdfController
+                                                              .setPage(
+                                                                  currentPage -
+                                                                      1)
+                                                          : null,
+                                                      icon: const Icon(
+                                                        Icons
+                                                            .arrow_back_ios_new_rounded,
+                                                        size: 16,
+                                                      ),
+                                                      label: const Text(
+                                                          "Previous"),
+                                                    ),
+                                                    ElevatedButton.icon(
+                                                      style: ElevatedButton
+                                                          .styleFrom(
+                                                        backgroundColor:
+                                                            canGoNext
+                                                                ? Colors.green
+                                                                : Colors.grey,
+                                                      ),
+                                                      onPressed: canGoNext
+                                                          ? () {
+                                                              if (!isLastPage) {
+                                                                pdfController
+                                                                    .setPage(
+                                                                        currentPage +
+                                                                            1);
+                                                                return;
+                                                              }
+                                                              context
+                                                                  .read<
+                                                                      UserProvider>()
+                                                                  .setIsScrollable = true;
+                                                              controller
+                                                                  .animateToPage(
+                                                                controller.page!
+                                                                        .toInt() +
+                                                                    1,
+                                                                duration:
+                                                                    const Duration(
+                                                                        milliseconds:
+                                                                            500),
+                                                                curve: Curves
+                                                                    .easeInOut,
+                                                              );
+                                                            }
+                                                          : null,
+                                                      icon: Icon(
+                                                        isLastPage
+                                                            ? Icons
+                                                                .check_circle_outline_rounded
+                                                            : Icons
+                                                                .arrow_forward_ios_rounded,
+                                                        size: 16,
+                                                      ),
+                                                      label: Text(nextLabel),
+                                                    ),
+                                                  ],
+                                                );
+                                              },
+                                            ),
+                                          )
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          });
+                } else {
+                  if (widget.trainingType != "C+T") {
+                    Stream<int> counter() {
+                      return Stream.periodic(
+                          const Duration(seconds: 1), (i) => i).take(4);
+                    }
+
+                    return StreamBuilder<int>(
+                      stream: counter(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const LoadingWidget();
+                        }
+
+                        if (snapshot.connectionState == ConnectionState.done) {
+                          Future.delayed(Duration.zero, () {
+                            if (mounted) {
+                              if (!widget.fromCompleted) {
+                                calculateContentProgress();
+                              }
+                              Provider.of<UserProvider>(context, listen: false)
+                                  .resetUserSelect();
+                              context.go('/home', extra: {
+                                'screenTitle': widget.screenTitle,
+                                'heroTag': widget.heroTag,
+                                'trainingID': widget.trainingId,
+                              });
+                            }
+                          });
+                        }
+
+                        return Container(
+                          height: size.height,
+                          width: size.width,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.all(24),
+                          child: Card(
+                            color: ColorConstraints.cardColor(context),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(28)),
+                            elevation: 8,
+                            shadowColor:
+                                ColorConstraints.cardShadowColor(context),
+                            child: Padding(
+                              padding: const EdgeInsets.all(32.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Image.asset(
+                                    'assets/success.gif',
+                                    scale: 1.5,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  Text(
+                                    "Congratulations!",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF10B981),
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    "You have completed your training for\n${widget.screenTitle}",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.4,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: ColorConstraints.topicCardColor(
+                                          context),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      'Returning to home in ${3 - snapshot.data!} seconds...',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.color
+                                            ?.withOpacity(0.6),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            );
-                          }
-                        });
-              } else {
-                if (widget.trainingType != "C+T") {
-                  Stream<int> counter() {
-                    return Stream.periodic(const Duration(seconds: 1), (i) => i)
-                        .take(4);
-                  }
-
-                  return StreamBuilder<int>(
-                    stream: counter(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const LoadingWidget();
-                      }
-
-                      if (snapshot.connectionState == ConnectionState.done) {
-                        Future.delayed(Duration.zero, () {
-                          if (mounted) {
-                            if (!widget.fromCompleted) {
-                              calculateContentProgress();
-                            }
-                            Provider.of<UserProvider>(context, listen: false)
-                                .resetUserSelect();
-                            context.go('/home', extra: {
-                              'screenTitle': widget.screenTitle,
-                              'heroTag': widget.heroTag,
-                              'trainingID': widget.trainingId,
-                            });
-                          }
-                        });
-                      }
-
-                      return Container(
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  } else {
+                    return Container(
                         height: size.height,
                         width: size.width,
                         alignment: Alignment.center,
-                        padding: const EdgeInsets.all(24),
-                        child: Card(
-                          color: ColorConstraints.cardColor(context),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(28)),
-                          elevation: 8,
-                          shadowColor:
-                              ColorConstraints.cardShadowColor(context),
-                          child: Padding(
-                            padding: const EdgeInsets.all(32.0),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Image.asset(
-                                  'assets/success.gif',
-                                  scale: 1.5,
-                                ),
-                                const SizedBox(height: 24),
-                                Text(
-                                  "Congratulations!",
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF10B981),
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  "You have completed your training for\n${widget.screenTitle}",
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.4,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 24),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: ColorConstraints.topicCardColor(
-                                        context),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    'Returning to home in ${3 - snapshot.data!} seconds...',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.color
-                                          ?.withOpacity(0.6),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                } else {
-                  if (!widget.fromCompleted) {
-                    calculateContentProgress();
-                  }
-                  return Container(
-                      height: size.height,
-                      width: size.width,
-                      alignment: Alignment.center,
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      // color: Colors.blue.shade100,
-                      child: Column(
-                        // mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text(
-                            "Ready to Test Your Knowledge?",
-                            style: TextStyle(
-                              fontSize: 34,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          Image.asset('assets/test.png',
-                              height: size.height / 6),
-                          const SizedBox(height: 20),
-                          const Text(
-                            "Feel confident about what you've learned? Click below to start the test and showcase your understanding.",
-                            style: TextStyle(fontSize: 20),
-                            // textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 60),
-                          ElevatedButton(
-                              onPressed: () async {
-                                // var alertResult = await showOkCancelAlertDialog(
-                                //     context: context,
-                                //     title: "Are you ready to take the test?",
-                                //     message:
-                                //         "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
-                                // if (alertResult == OkCancelResult.ok) {
-                                debugPrint(
-                                    "cutoff trianing_screen: ${widget.cutOff}");
-                                Provider.of<UserProvider>(context,
-                                        listen: false)
-                                    .resetUserSelect();
-                                context.read<TabProvider>().resetSelection();
-                                // calculateContentProgress();
-
-                                if (context.mounted) {
-                                  context.read<UserProvider>()
-                                    ..setIsScrollable = true
-                                    ..setTrainingPageTrack = 0;
-                                  context.replace('/training-test', extra: {
-                                    'screenTitle': widget.screenTitle,
-                                    'heroTag': widget.heroTag,
-                                    'trainingID': widget.trainingId,
-                                    'containsTest': widget.trainingType,
-                                    'cutOff': widget.cutOff,
-                                    'testTimer': widget.testTimer,
-                                  });
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue.shade300,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(50),
-                                ),
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        // color: Colors.blue.shade100,
+                        child: Column(
+                          // mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text(
+                              "Ready to Test Your Knowledge?",
+                              style: TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.bold,
                               ),
-                              child: Text(
-                                "BEGIN TEST",
-                                style: TextStyle(
-                                    fontSize: 25,
-                                    fontWeight: FontWeight.w600,
-                                    color: ColorConstraints.iconColor(context)),
-                              )),
-                        ],
-                      ));
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 20),
+                            Image.asset('assets/test.png',
+                                height: size.height / 6),
+                            const SizedBox(height: 20),
+                            const Text(
+                              "Feel confident about what you've learned? Click below to start the test and showcase your understanding.",
+                              style: TextStyle(fontSize: 20),
+                              // textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 60),
+                            ElevatedButton(
+                                onPressed: () async {
+                                  // var alertResult = await showOkCancelAlertDialog(
+                                  //     context: context,
+                                  //     title: "Are you ready to take the test?",
+                                  //     message:
+                                  //         "It’s time to put your knowledge to the test. Are you ready to take the test and see how much you’ve learned?");
+                                  // if (alertResult == OkCancelResult.ok) {
+                                  debugPrint(
+                                      "cutoff trianing_screen: ${widget.cutOff}");
+                                  Provider.of<UserProvider>(context,
+                                          listen: false)
+                                      .resetUserSelect();
+                                  context.read<TabProvider>().resetSelection();
+
+                                  // Ensure the content-side 50% update finishes
+                                  // before the assessment can later promote the
+                                  // combined training to 100%.
+                                  if (!widget.fromCompleted &&
+                                      !_shouldOpenBeginTestPage) {
+                                    await (_contentCompletionUpdate ??=
+                                        calculateContentProgress());
+                                  }
+
+                                  if (context.mounted) {
+                                    context.read<UserProvider>()
+                                      ..setIsScrollable = true
+                                      ..setTrainingPageTrack = 0;
+                                    context.replace('/training-test', extra: {
+                                      'screenTitle': widget.screenTitle,
+                                      'heroTag': widget.heroTag,
+                                      'trainingID': widget.trainingId,
+                                      'containsTest': widget.trainingType,
+                                      'cutOff': widget.cutOff,
+                                      'testTimer': widget.testTimer,
+                                    });
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade300,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(50),
+                                  ),
+                                ),
+                                child: Text(
+                                  "BEGIN TEST",
+                                  style: TextStyle(
+                                      fontSize: 25,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          ColorConstraints.iconColor(context)),
+                                )),
+                          ],
+                        ));
+                  }
                 }
-              }
-            },
+              },
+            ),
           );
         },
       ),
@@ -1285,6 +1455,8 @@ class _TrainingScreenState extends State<TrainingScreen>
     debugPrint("calling dispose!");
     _animationController?.dispose();
     _pageMoveTimer?.cancel();
+    _pdfControllers.clear();
+    _completedPdfTimerPages.clear();
     controller.dispose();
 
     for (var timer in _timers) {

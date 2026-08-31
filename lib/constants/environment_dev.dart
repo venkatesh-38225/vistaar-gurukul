@@ -2,6 +2,9 @@ import 'package:gurukul/common/environment.dart';
 
 class DevEnv implements Environment {
   @override
+  bool get isProduction => false;
+
+  @override
   String get baseUrl =>
       "https://vistaarapis.vistaarfinance.net.in:469/VisAPIs.svc";
 
