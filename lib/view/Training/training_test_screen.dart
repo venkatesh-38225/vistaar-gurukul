@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:adaptive_dialog/adaptive_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,10 +9,10 @@ import 'package:gurukul/provider/theme_provider.dart';
 import 'package:gurukul/utils/colors.dart';
 import 'package:gurukul/utils/widgets/custom_appbar.dart';
 import 'package:provider/provider.dart';
-import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import '../../model/training_test.dart';
 import '../../utils/widgets/options_widget.dart';
+import '../../utils/widgets/custom_snackbar.dart';
 
 enum TestDecision { Pass, Fail }
 
@@ -57,6 +56,7 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
   @override
   void initState() {
     super.initState();
+    context.read<TabProvider>().resetSelection();
     _trainingTestFuture = context
         .read<UserProvider>()
         .getTrainingTest(trainingId: widget.trainingId);
@@ -74,11 +74,8 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     });
     // _userProvider = Provider.of<UserProvider>(context, listen: false);
     Future.delayed(const Duration(milliseconds: 100), () {
-      // Provider.of<UserProvider>(context, listen: false)
-      //     .setPageTrack(_pageTrack, 0);
+      if (!mounted) return;
       context.read<UserProvider>().setTrainingPageTrack = 0;
-
-      // context.read<UserProvider>().setCompletedPdfPages = 0;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!(context.read<TabProvider>().isFromCompleted)) {
@@ -188,54 +185,210 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
   }
 
   Future<void> _autoSubmitTest() async {
-    if (_isSubmitting || _questions.isEmpty) return;
+    if (_isSubmitting) return;
     setState(() => _isSubmitting = true);
 
-    final tabProvider = context.read<TabProvider>();
-    final selectedByQuestion = <int, int?>{};
-    for (var index = 0;
-        index < tabProvider.qId.length && index < tabProvider.opSelected.length;
-        index++) {
-      selectedByQuestion[tabProvider.qId[index]] =
-          tabProvider.opSelected[index];
-    }
-
-    final questionIds = _questions.map((question) => question.id!).toList();
-    final selectedOptions = questionIds
-        .map<int?>((questionId) => selectedByQuestion[questionId])
-        .toList();
-    final marks = context.read<UserProvider>().getMarks;
+    int totalQuestions = _questions.length;
+    int marks = context.read<UserProvider>().getMarks;
     final decision = marks < widget.cutOff ? "Fail" : "Pass";
-    final submitted = await _submitTestUpdate(
-      testDecision: decision,
-      questionIds: questionIds,
-      selectedOptions: selectedOptions,
-    );
-
-    if (!mounted) return;
-    if (!submitted) {
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              "Time is up, but the test could not be submitted. Please use SUBMIT TEST to retry."),
-        ),
-      );
-      return;
-    }
+    final testDecision =
+        marks < widget.cutOff ? TestDecision.Fail : TestDecision.Pass;
 
     try {
-      context.read<UserProvider>()
-        ..setPercAndStatus()
-        ..getOtherTrainingData();
+      await _submitTestUpdate(testDecision: decision);
     } catch (e) {
-      debugPrint("Error refreshing after automatic submission: $e");
+      debugPrint("Error during auto-submission: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        await _showTestResultDialog(
+          testDecision: testDecision,
+          totalQuestions: totalQuestions,
+          marks: marks,
+        );
+      }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text("Time is up. Test submitted automatically.")),
+  }
+
+  Future<void> _showTestResultDialog({
+    required TestDecision testDecision,
+    required int totalQuestions,
+    required int marks,
+  }) async {
+    if (!mounted) return;
+
+    int cuttOffPercentage = totalQuestions > 0
+        ? ((widget.cutOff / totalQuestions) * 100).round()
+        : 0;
+    double scoredPercentage =
+        totalQuestions > 0 ? ((marks / totalQuestions) * 100) : 0.0;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        if (testDecision == TestDecision.Fail) {
+          return AlertDialog(
+            backgroundColor: ColorConstraints.cardColor(dialogContext),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24.0),
+            ),
+            title: Text(
+              "Better luck next time",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade400,
+                fontSize: 20,
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: ListBody(
+                children: <Widget>[
+                  Image.asset(
+                    'assets/fail.gif',
+                    scale: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Text.rich(
+                    TextSpan(
+                      text:
+                          "Unfortunately, you didn't pass the quiz this time. You achieved a score of",
+                      children: [
+                        TextSpan(
+                          text: " ${scoredPercentage.round()}%",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const TextSpan(
+                          text: ", while the passing score is",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                        TextSpan(
+                          text: " $cuttOffPercentage%",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const TextSpan(
+                          text:
+                              ". But don't be disheartened! Keep learning and practicing, and you're sure to ace it next time!",
+                        ),
+                      ],
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w400,
+                        fontSize: 15,
+                        color: ColorConstraints.iconColor(dialogContext),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                child: Text(
+                  'OK',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    color: ColorConstraints.secondaryColor(dialogContext),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
+              ),
+            ],
+          );
+        } else {
+          return AlertDialog(
+            backgroundColor: ColorConstraints.cardColor(dialogContext),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24.0),
+            ),
+            title: Text(
+              "Congratulations!",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.bold,
+                color: Colors.green.shade400,
+                fontSize: 20,
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: ListBody(
+                children: <Widget>[
+                  Image.asset(
+                    'assets/success.gif',
+                    scale: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Text.rich(
+                    TextSpan(
+                      text: "Fantastic job! You scored",
+                      children: [
+                        TextSpan(
+                          text: " ${scoredPercentage.toStringAsFixed(1)}%",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const TextSpan(
+                          text:
+                              ", You've passed the quiz with flying colors. Keep shining!",
+                        ),
+                      ],
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w400,
+                        fontSize: 15,
+                        color: ColorConstraints.iconColor(dialogContext),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                child: Text(
+                  'OK',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    color: ColorConstraints.secondaryColor(dialogContext),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
+              ),
+            ],
+          );
+        }
+      },
     );
-    context.go('/home');
+
+    if (mounted) {
+      try {
+        context.read<UserProvider>()
+          ..setPercAndStatus()
+          ..getOtherTrainingData();
+      } catch (e) {
+        debugPrint("Error refreshing : $e ");
+      }
+      context.go('/home');
+    }
   }
 
   Future<bool> onFailUpdate() async {
@@ -280,16 +433,31 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
         return false;
       }
 
-      final detailsResponse = await userProvider.addUserTestTrancriptDetails(
-        trainingId: transcriptId.toString(),
-        OpSelected: selectedOptions ?? List<int?>.from(tabProvider.opSelected),
-        Qid: questionIds ?? tabProvider.qId,
-      );
+      final finalQids = questionIds ?? tabProvider.qId;
+      final finalOptions =
+          selectedOptions ?? List<int?>.from(tabProvider.opSelected);
 
-      debugPrint(
-          "options Selected ${tabProvider.opSelected} questions Selected ${tabProvider.qId}");
-      if (detailsResponse <= 0) {
-        return false;
+      List<int> cleanQids = [];
+      List<int?> cleanOptions = [];
+      for (int i = 0; i < finalQids.length && i < finalOptions.length; i++) {
+        if (finalOptions[i] != null) {
+          cleanQids.add(finalQids[i]);
+          cleanOptions.add(finalOptions[i]);
+        }
+      }
+
+      if (cleanQids.isNotEmpty) {
+        final detailsResponse = await userProvider.addUserTestTrancriptDetails(
+          trainingId: transcriptId.toString(),
+          OpSelected: cleanOptions,
+          Qid: cleanQids,
+        );
+
+        debugPrint(
+            "options Selected $cleanOptions questions Selected $cleanQids (response: $detailsResponse)");
+        if (detailsResponse <= 0) {
+          return false;
+        }
       }
 
       _testSubmissionRecorded = true;
@@ -323,12 +491,12 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
     return WillPopScope(
       onWillPop: () async {
         if (_isTimedTestActive || _isSubmitting) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_isTimedTestActive
-                  ? "You cannot exit until the assessment timer ends."
-                  : "Your test is being submitted. Please wait."),
-            ),
+          CustomSnackBar.show(
+            context,
+            message: _isTimedTestActive
+                ? "You cannot exit until the assessment timer ends."
+                : "Your test is being submitted. Please wait.",
+            type: SnackBarType.warning,
           );
           return false;
         }
@@ -625,11 +793,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                 }
                                 if (_isTimedTestActive &&
                                     !_allQuestionsAnswered) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          "Please answer all questions before submitting. Unanswered questions will be submitted automatically when the timer ends."),
-                                    ),
+                                  CustomSnackBar.show(
+                                    context,
+                                    message:
+                                        "Please answer all questions before submitting. Unanswered questions will be submitted automatically when the timer ends.",
+                                    type: SnackBarType.warning,
                                   );
                                   return;
                                 }
@@ -646,15 +814,11 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
                                         listen: false)
                                     .getMarks);
 
-                                TestDecision testDecision = TestDecision.Pass;
-                                int cuttOffString =
-                                    ((widget.cutOff / snapshot.data.length) *
-                                            100)
-                                        .round();
+                                TestDecision testDecision =
+                                    percentage < widget.cutOff
+                                        ? TestDecision.Fail
+                                        : TestDecision.Pass;
                                 debugPrint("Marks = $percentage");
-                                if (percentage < widget.cutOff) {
-                                  testDecision = TestDecision.Fail;
-                                }
 
                                 final submissionSuccessful =
                                     testDecision == TestDecision.Fail
@@ -667,224 +831,22 @@ class _TrainingTestScreenState extends State<TrainingTestScreen> {
 
                                 if (!submissionSuccessful) {
                                   _resumeCountdownAfterFailedManualSubmission();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          "Unable to submit the completed training. Please try again."),
-                                    ),
+                                  CustomSnackBar.show(
+                                    context,
+                                    message:
+                                        "Unable to submit the completed training. Please try again.",
+                                    type: SnackBarType.error,
                                   );
                                   return;
                                 }
 
                                 setState(() => _isSubmitting = false);
 
-                                if (testDecision == TestDecision.Fail) {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) {
-                                      return AlertDialog(
-                                        backgroundColor:
-                                            ColorConstraints.cardColor(context),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(24.0),
-                                        ),
-                                        title: Text(
-                                          "Better luck next time",
-                                          textAlign: TextAlign.center,
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.red.shade400,
-                                            fontSize: 20,
-                                          ),
-                                        ),
-                                        content: SingleChildScrollView(
-                                          child: ListBody(
-                                            children: <Widget>[
-                                              Image.asset(
-                                                'assets/fail.gif',
-                                                scale: 2,
-                                              ),
-                                              const SizedBox(
-                                                height: 16,
-                                              ),
-                                              Text.rich(
-                                                TextSpan(
-                                                  text:
-                                                      "Unfortunately, you didn't pass the quiz this time. You achieved a score of",
-                                                  children: [
-                                                    TextSpan(
-                                                      text:
-                                                          " ${((percentage / snapshot.data.length) * 100).round()}%",
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 18,
-                                                        color: Colors.red,
-                                                      ),
-                                                    ),
-                                                    const TextSpan(
-                                                        text:
-                                                            ", while the passing score is",
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          fontSize: 18,
-                                                        )),
-                                                    TextSpan(
-                                                      text: " $cuttOffString%",
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 18,
-                                                        color: Colors.green,
-                                                      ),
-                                                    ),
-                                                    const TextSpan(
-                                                      text:
-                                                          ". But don't be disheartened! Keep learning and practicing, and you're sure to ace it next time!",
-                                                    ),
-                                                  ],
-                                                  style: GoogleFonts
-                                                      .plusJakartaSans(
-                                                    fontWeight: FontWeight.w400,
-                                                    fontSize: 15,
-                                                    color: ColorConstraints
-                                                        .iconColor(context),
-                                                    height: 1.4,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        actions: <Widget>[
-                                          TextButton(
-                                            child: Text(
-                                              'OK',
-                                              style:
-                                                  GoogleFonts.plusJakartaSans(
-                                                fontWeight: FontWeight.bold,
-                                                color: ColorConstraints
-                                                    .secondaryColor(context),
-                                              ),
-                                            ),
-                                            onPressed: () async {
-                                              Navigator.of(context).pop();
-                                              try {
-                                                context.read<UserProvider>()
-                                                  ..setPercAndStatus()
-                                                  ..getOtherTrainingData();
-                                              } catch (e) {
-                                                debugPrint(
-                                                    "Error refreshing : $e ");
-                                              }
-                                              context.go('/home');
-                                            },
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                } else {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) {
-                                      return AlertDialog(
-                                        backgroundColor:
-                                            ColorConstraints.cardColor(context),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(24.0),
-                                        ),
-                                        title: Text(
-                                          "Congratulations!",
-                                          textAlign: TextAlign.center,
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green.shade400,
-                                            fontSize: 20,
-                                          ),
-                                        ),
-                                        content: SingleChildScrollView(
-                                          child: ListBody(
-                                            children: <Widget>[
-                                              Image.asset(
-                                                'assets/success.gif',
-                                                scale: 2,
-                                              ),
-                                              const SizedBox(
-                                                height: 16,
-                                              ),
-                                              Text.rich(
-                                                TextSpan(
-                                                  text:
-                                                      "Fantastic job! You score",
-                                                  children: [
-                                                    TextSpan(
-                                                      text:
-                                                          " ${((percentage / snapshot.data.length) * 100).toStringAsFixed(1)}%",
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 18,
-                                                        color: Colors.green,
-                                                      ),
-                                                    ),
-                                                    const TextSpan(
-                                                      text:
-                                                          ", You've passed the quiz with flying colors. Keep shining!",
-                                                    ),
-                                                  ],
-                                                  style: GoogleFonts
-                                                      .plusJakartaSans(
-                                                    fontWeight: FontWeight.w400,
-                                                    fontSize: 15,
-                                                    color: ColorConstraints
-                                                        .iconColor(context),
-                                                    height: 1.4,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        actions: <Widget>[
-                                          TextButton(
-                                            child: Text(
-                                              'OK',
-                                              style:
-                                                  GoogleFonts.plusJakartaSans(
-                                                fontWeight: FontWeight.bold,
-                                                color: ColorConstraints
-                                                    .secondaryColor(context),
-                                              ),
-                                            ),
-                                            onPressed: () async {
-                                              Navigator.of(context).pop();
-                                              try {
-                                                context.read<UserProvider>()
-                                                  ..setPercAndStatus()
-                                                  ..getOtherTrainingData();
-                                              } catch (e) {
-                                                debugPrint(
-                                                    "Error refreshing : $e ");
-                                              }
-                                              context.go('/home');
-                                            },
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                }
-                                try {
-                                  context.read<UserProvider>()
-                                    ..setPercAndStatus()
-                                    ..getOtherTrainingData();
-                                } catch (e) {
-                                  debugPrint("Error refreshing : $e ");
-                                }
+                                await _showTestResultDialog(
+                                  testDecision: testDecision,
+                                  totalQuestions: snapshot.data.length,
+                                  marks: percentage,
+                                );
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,

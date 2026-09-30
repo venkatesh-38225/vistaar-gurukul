@@ -483,19 +483,24 @@ isLoading  = true;
     return trainingTest.d;
   }
 
-  void userSelect(
-      {required String correctOption,
-      required String selectedOption,
-      required int questionIndex}) {
+  void userSelect({
+    required String correctOption,
+    required String selectedOption,
+    required int questionIndex,
+    bool wasCorrect = false,
+  }) {
     // If the question has not been answered before, initialize it
     if (_selectedAnswers[questionIndex.toString()] == null) {
       _selectedAnswers[questionIndex.toString()] = {};
     }
 
-    // Update the correct and selected options for the question
-    _selectedAnswers[questionIndex.toString()]['correct'] = correctOption;
+    // Update the correct, selected options and correctness status for the question
+    if (correctOption.isNotEmpty) {
+      _selectedAnswers[questionIndex.toString()]['correct'] = correctOption;
+    }
     _selectedAnswers[questionIndex.toString()]['selectedOption'] =
         selectedOption;
+    _selectedAnswers[questionIndex.toString()]['wasCorrect'] = wasCorrect;
     notifyListeners();
   }
 

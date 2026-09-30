@@ -64,6 +64,17 @@ class TabProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setAnswer(int questionId, int optionIndex) {
+    int existingIndex = _qId.indexOf(questionId);
+    if (existingIndex >= 0) {
+      _opSelected[existingIndex] = optionIndex + 1;
+    } else {
+      _qId.add(questionId);
+      _opSelected.add(optionIndex + 1);
+    }
+    notifyListeners();
+  }
+
   void resetSelection() {
     _opSelected = [];
     _qId = [];

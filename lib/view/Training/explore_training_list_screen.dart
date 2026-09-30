@@ -11,6 +11,7 @@ import '../../model/training.dart';
 import '../../provider/api_provider.dart';
 import '../../provider/tab_provider.dart';
 import '../../utils/widgets/topic_card_widget.dart';
+import '../../utils/widgets/custom_snackbar.dart';
 
 class ExploreTrainingListScreen extends StatefulWidget {
   const ExploreTrainingListScreen({
@@ -94,16 +95,14 @@ class _ExploreTrainingListScreenState extends State<ExploreTrainingListScreen> {
                                   department: widget.department)
                               .then((value) {
                             if (value == 0) {
-                              SnackBar snackBar = SnackBar(
-                                  content: const Text(
-                                      "You have already been allocated to training. Please verify it on the home screen's 'Others' tab."),
-                                  duration: const Duration(seconds: 3),
-                                  action: SnackBarAction(
-                                      label: "Other's Tab",
-                                      onPressed: () =>
-                                          context.replace('/others')));
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(snackBar);
+                              CustomSnackBar.show(
+                                context,
+                                message:
+                                    "You have already been allocated to this training.",
+                                type: SnackBarType.info,
+                                actionLabel: "View in Others",
+                                onAction: () => context.replace('/others'),
+                              );
                             }
                             // } else if (value == 0) {
                             //   SnackBar snackBar = SnackBar(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:gurukul/utils/widgets/custom_snackbar.dart';
 
 class VideoPlayerWidget extends StatefulWidget {
   final String videoUrl;
@@ -116,12 +117,11 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         if (lastSnackBarTime == null ||
             currentTime.difference(lastSnackBarTime!).inSeconds > 3) {
           lastSnackBarTime = currentTime;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Rewind 5 sec"),
-              dismissDirection: DismissDirection.horizontal,
-              duration: Duration(milliseconds: 500),
-            ),
+          CustomSnackBar.show(
+            context,
+            message: "Rewound 10 sec",
+            type: SnackBarType.info,
+            duration: const Duration(milliseconds: 1200),
           );
         }
         final newPosition =

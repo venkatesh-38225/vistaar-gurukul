@@ -4,6 +4,7 @@ import 'package:gurukul/routes/routes.dart';
 import 'package:gurukul/services/app_version_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gurukul/utils/widgets/custom_snackbar.dart';
 
 class AppVersionGate extends StatefulWidget {
   const AppVersionGate({required this.child, super.key});
@@ -23,9 +24,11 @@ class AppVersionGate extends StatefulWidget {
     debugPrint('Local (Installed) Version: ${packageInfo.version}');
 
     final staticVersion = "2.0.0";
-    final isMatch = AppVersionService.versionsMatch(staticVersion, requiredVersion);
-    
+    final isMatch =
+        AppVersionService.versionsMatch(staticVersion, requiredVersion);
+
     // final isMatch = AppVersionService.versionsMatch(packageInfo.version, requiredVersion);
+
     debugPrint('Versions Match: $isMatch');
     debugPrint('=========================');
 
@@ -96,9 +99,12 @@ class AppVersionGate extends StatefulWidget {
                   ),
                   const SizedBox(height: 20),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                      color: isDark
+                          ? const Color(0xFF1E293B)
+                          : const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
@@ -119,7 +125,9 @@ class AppVersionGate extends StatefulWidget {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                color: isDark
+                                    ? Colors.white70
+                                    : const Color(0xFF334155),
                               ),
                             ),
                           ],
@@ -206,10 +214,10 @@ class AppVersionGate extends StatefulWidget {
     if (!hasExternalUrl ||
         !await launchUrl(updateUri, mode: LaunchMode.externalApplication)) {
       if (!dialogContext.mounted) return;
-      ScaffoldMessenger.of(dialogContext).showSnackBar(
-        const SnackBar(
-          content: Text('The app update link is not configured yet.'),
-        ),
+      CustomSnackBar.show(
+        dialogContext,
+        message: 'The app update link is not configured yet.',
+        type: SnackBarType.warning,
       );
     }
   }

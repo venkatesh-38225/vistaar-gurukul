@@ -32,19 +32,12 @@ class OptionButtonWidget extends StatefulWidget {
 }
 
 class _OptionButtonWidgetState extends State<OptionButtonWidget> {
-  Color backgroundCo = Colors.white;
-  // late final UserProvider provider;
-
   @override
   void initState() {
     super.initState();
     // debugPrint("options = ${widget.options}");
 
     if (widget.correctOption == 1) {
-      // optionSelect["${widget.questionIndex}"] =
-      //     optionSelect["${widget.questionIndex}"] ?? {};
-      // optionSelect["${widget.questionIndex}"]!['correct'] = widget.options;
-
       WidgetsBinding.instance.addPostFrameCallback((_) {
         bool alreadyAnswered = Provider.of<UserProvider>(context, listen: false)
             .selectedAnswers
@@ -60,7 +53,8 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
   }
 
   Color _getOptionLetterBgColor(int questionIndex, String option) {
-    var getAllAnswers = Provider.of<UserProvider>(context, listen: false).selectedAnswers;
+    var getAllAnswers =
+        Provider.of<UserProvider>(context, listen: false).selectedAnswers;
     if (getAllAnswers[questionIndex.toString()] == null ||
         getAllAnswers[questionIndex.toString()]['selectedOption'] == null ||
         getAllAnswers[questionIndex.toString()]['selectedOption'] == "") {
@@ -68,35 +62,29 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
           ? Colors.white.withOpacity(0.08)
           : Colors.black.withOpacity(0.05);
     }
-    
+
     if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option) {
-      return getAllAnswers[questionIndex.toString()]['selectedOption'] == getAllAnswers[questionIndex.toString()]['correct']
-          ? const Color(0xFF10B981)
-          : const Color(0xFFEF4444);
+      return const Color(0xFF005BB5);
     }
-    
-    if (getAllAnswers[questionIndex.toString()]['correct'] == option) {
-      return const Color(0xFF10B981);
-    }
-    
+
     return context.read<ThemeChanger>().isNightMode
         ? Colors.white.withOpacity(0.05)
         : Colors.black.withOpacity(0.03);
   }
 
   Color _getOptionLetterTextColor(int questionIndex, String option) {
-    var getAllAnswers = Provider.of<UserProvider>(context, listen: false).selectedAnswers;
+    var getAllAnswers =
+        Provider.of<UserProvider>(context, listen: false).selectedAnswers;
     if (getAllAnswers[questionIndex.toString()] == null ||
         getAllAnswers[questionIndex.toString()]['selectedOption'] == null ||
         getAllAnswers[questionIndex.toString()]['selectedOption'] == "") {
       return ColorConstraints.iconColor(context);
     }
-    
-    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option ||
-        getAllAnswers[questionIndex.toString()]['correct'] == option) {
+
+    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option) {
       return Colors.white;
     }
-    
+
     return ColorConstraints.iconColor(context).withOpacity(0.5);
   }
 
@@ -109,40 +97,69 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
       width: size.width / 1.2,
       child: ElevatedButton(
         onPressed: () async {
-          var getAllAnswers =
-              Provider.of<UserProvider>(context, listen: false).selectedAnswers;
+          final userProvider =
+              Provider.of<UserProvider>(context, listen: false);
+          final tabProvider = context.read<TabProvider>();
+          final qKey = widget.questionIndex.toString();
+          final currentAnswerMap = userProvider.selectedAnswers[qKey];
 
-          if (getAllAnswers[widget.questionIndex.toString()] == null ||
-              getAllAnswers[widget.questionIndex.toString()]
-                      ['selectedOption'] ==
-                  null ||
-              getAllAnswers[widget.questionIndex.toString()]
-                      ['selectedOption'] ==
-                  "") {
-            if (widget.correctOption == 1) {
-              backgroundCo = Colors.green;
-              Provider.of<UserProvider>(context, listen: false).addMarks =
-                  Provider.of<UserProvider>(context, listen: false).getMarks +
-                      1;
+          final String prevSelectedOption =
+              currentAnswerMap != null ? (currentAnswerMap['selectedOption'] ?? "") : "";
+          final bool prevWasCorrect =
+              currentAnswerMap != null ? (currentAnswerMap['wasCorrect'] ?? false) : false;
+          final bool isNowCorrect = widget.correctOption == 1;
+
+          // If user taps the already selected option, advance to next question
+          if (prevSelectedOption == widget.options) {
+            if (widget.questionIndex + 1 < widget.totalNumberOfPage) {
+              widget.pageController.animateToPage(
+                widget.questionIndex + 1,
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeInOut,
+              );
             }
-            setState(() {});
-            Provider.of<UserProvider>(context, listen: false).userSelect(
-                correctOption: getAllAnswers[widget.questionIndex.toString()]
-                    ['correct'],
-                questionIndex: widget.questionIndex,
-                selectedOption: widget.options);
-            context.read<TabProvider>()
-              ..setOpSelected = widget.optionIndex
-              ..setQID = widget.questionId;
-            Provider.of<UserProvider>(context, listen: false)
-                .handleOptions[widget.questionIndex] = true;
-            widget.pageController.animateToPage(
-                widget.pageController.page!.toInt() + 1,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeIn);
+            return;
+          }
+
+          // Dynamically adjust marks based on previous vs new choice
+          int currentMarks = userProvider.getMarks;
+          if (prevSelectedOption.isEmpty) {
+            // First time answering this question
+            if (isNowCorrect) {
+              userProvider.addMarks = currentMarks + 1;
+            }
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text("Sorry! You cannot change your answers")));
+            // Modifying an existing answer
+            if (prevWasCorrect && !isNowCorrect) {
+              userProvider.addMarks = (currentMarks > 0) ? currentMarks - 1 : 0;
+            } else if (!prevWasCorrect && isNowCorrect) {
+              userProvider.addMarks = currentMarks + 1;
+            }
+          }
+
+          setState(() {});
+
+          userProvider.userSelect(
+            correctOption: currentAnswerMap != null
+                ? (currentAnswerMap['correct'] ?? "")
+                : "",
+            questionIndex: widget.questionIndex,
+            selectedOption: widget.options,
+            wasCorrect: isNowCorrect,
+          );
+
+          tabProvider.setAnswer(widget.questionId, widget.optionIndex);
+
+          if (widget.questionIndex < userProvider.handleOptions.length) {
+            userProvider.handleOptions[widget.questionIndex] = true;
+          }
+
+          if (widget.questionIndex + 1 < widget.totalNumberOfPage) {
+            widget.pageController.animateToPage(
+              widget.questionIndex + 1,
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.easeInOut,
+            );
           }
         },
         style: ElevatedButton.styleFrom(
@@ -166,16 +183,19 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: _getOptionLetterBgColor(widget.questionIndex, widget.options),
+                  color: _getOptionLetterBgColor(
+                      widget.questionIndex, widget.options),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  String.fromCharCode(65 + widget.optionIndex), // 'A', 'B', etc.
+                  String.fromCharCode(
+                      65 + widget.optionIndex), // 'A', 'B', etc.
                   style: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
-                    color: _getOptionLetterTextColor(widget.questionIndex, widget.options),
+                    color: _getOptionLetterTextColor(
+                        widget.questionIndex, widget.options),
                   ),
                 ),
               ),
@@ -208,20 +228,13 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
       return ColorConstraints.cardColor(context);
     }
 
-    if (getAllAnswers[questionIndex.toString()]['selectedOption'] ==
-        getAllAnswers[questionIndex.toString()]['correct']) {
-      return (getAllAnswers[questionIndex.toString()]['selectedOption'] ==
-                  option ||
-              getAllAnswers[questionIndex.toString()]['correct'] == option)
-          ? const Color(0xFFD1FAE5) // light emerald
-          : ColorConstraints.cardColor(context);
+    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option) {
+      return context.read<ThemeChanger>().isNightMode
+          ? const Color(0xFF005BB5).withOpacity(0.2)
+          : const Color(0xFFE0F2FE); // subtle active blue
     }
 
-    return getAllAnswers[questionIndex.toString()]['selectedOption'] == option
-        ? const Color(0xFFFEE2E2) // light rose red
-        : (getAllAnswers[questionIndex.toString()]['correct'] == option)
-            ? const Color(0xFFD1FAE5)
-            : ColorConstraints.cardColor(context);
+    return ColorConstraints.cardColor(context);
   }
 
   Color answerBorderColor(int questionIndex, String option) {
@@ -236,24 +249,13 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
           : Colors.grey.shade200;
     }
 
-    if (getAllAnswers[questionIndex.toString()]['selectedOption'] ==
-        getAllAnswers[questionIndex.toString()]['correct']) {
-      return (getAllAnswers[questionIndex.toString()]['selectedOption'] ==
-                  option ||
-              getAllAnswers[questionIndex.toString()]['correct'] == option)
-          ? const Color(0xFF10B981) // emerald
-          : (context.read<ThemeChanger>().isNightMode
-              ? Colors.white.withOpacity(0.12)
-              : Colors.grey.shade200);
+    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option) {
+      return const Color(0xFF005BB5); // Brand blue border
     }
 
-    return getAllAnswers[questionIndex.toString()]['selectedOption'] == option
-        ? const Color(0xFFEF4444) // rose red
-        : (getAllAnswers[questionIndex.toString()]['correct'] == option)
-            ? const Color(0xFF10B981)
-            : (context.read<ThemeChanger>().isNightMode
-                ? Colors.white.withOpacity(0.12)
-                : Colors.grey.shade200);
+    return context.read<ThemeChanger>().isNightMode
+        ? Colors.white.withOpacity(0.12)
+        : Colors.grey.shade200;
   }
 
   Color answerTextColor(int questionIndex, String option) {
@@ -266,14 +268,12 @@ class _OptionButtonWidgetState extends State<OptionButtonWidget> {
       return ColorConstraints.iconColor(context);
     }
 
-    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option ||
-        getAllAnswers[questionIndex.toString()]['correct'] == option) {
-      if (getAllAnswers[questionIndex.toString()]['correct'] == option) {
-        return const Color(0xFF047857); // dark emerald text
-      }
-      return const Color(0xFFB91C1C); // dark rose text
+    if (getAllAnswers[questionIndex.toString()]['selectedOption'] == option) {
+      return context.read<ThemeChanger>().isNightMode
+          ? Colors.white
+          : const Color(0xFF003B75); // Selected option text color
     }
 
-    return ColorConstraints.iconColor(context);
+    return ColorConstraints.iconColor(context).withOpacity(0.7);
   }
 }
